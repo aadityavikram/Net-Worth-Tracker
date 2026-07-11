@@ -59,6 +59,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.networth.tracker.data.AssetCategory
 import com.networth.tracker.data.AssetEntity
+import com.networth.tracker.data.BankAccountEntity
+import com.networth.tracker.data.BankAccountType
 import com.networth.tracker.data.CategorySummary
 import com.networth.tracker.data.ExchangeRateState
 import com.networth.tracker.data.NetWorthSummary
@@ -67,83 +69,25 @@ import com.networth.tracker.data.ReturnMetrics
 import com.networth.tracker.ui.theme.AssetPositiveColor
 import com.networth.tracker.ui.theme.LiabilityColor
 import com.networth.tracker.util.FormatUtils
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.runtime.LaunchedEffect
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import com.networth.tracker.data.BackupInfo
-import com.networth.tracker.data.PortfolioBackupStore
 import com.networth.tracker.viewmodel.DashboardViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     viewModel: DashboardViewModel,
-    backupStore: PortfolioBackupStore,
     onAddAsset: () -> Unit,
-    onEditAsset: (Long) -> Unit
+    onEditAsset: (Long) -> Unit,
+    onAddBankAccount: () -> Unit,
+    onEditBankAccount: (Long) -> Unit
 ) {
     val assets by viewModel.assets.collectAsStateWithLifecycle()
+    val bankAccounts by viewModel.bankAccounts.collectAsStateWithLifecycle()
     val summary by viewModel.summary.collectAsStateWithLifecycle()
     val exchangeRateState by viewModel.exchangeRateState.collectAsStateWithLifecycle()
-    val backupInfo by viewModel.backupInfo.collectAsStateWithLifecycle()
-    val backupMessage by viewModel.backupMessage.collectAsStateWithLifecycle()
-    val needsFolderAccess by viewModel.needsFolderAccess.collectAsStateWithLifecycle()
-    val isBackupBusy by viewModel.isBackupBusy.collectAsStateWithLifecycle()
     var assetToDelete by remember { mutableStateOf<AssetEntity?>(null) }
-    val snackbarHostState = remember { SnackbarHostState() }
-    var showFolderDialog by remember { mutableStateOf(false) }
-
-    val backupFolderLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        uri?.let { viewModel.configureBackupFolder(it) }
-    }
-
-    LaunchedEffect(backupMessage) {
-        backupMessage?.let { message ->
-            snackbarHostState.showSnackbar(message)
-            viewModel.clearBackupMessage()
-        }
-    }
-
-    LaunchedEffect(needsFolderAccess) {
-        if (needsFolderAccess) showFolderDialog = true
-    }
-
-    if (showFolderDialog) {
-        AlertDialog(
-            onDismissRequest = { showFolderDialog = false },
-            title = { Text("Select Documents folder") },
-            text = {
-                Text(
-                    "To save JSON backups that survive uninstall, select the Documents folder once. Backups will be stored in Documents/NetWorthTracker/."
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showFolderDialog = false
-                    backupFolderLauncher.launch(backupStore.suggestedBackupTreeInitialUri())
-                }) {
-                    Text("Select Documents")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showFolderDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+    var bankAccountToDelete by remember { mutableStateOf<BankAccountEntity?>(null) }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Net Worth Tracker") },
@@ -158,7 +102,7 @@ fun DashboardScreen(
                 onClick = onAddAsset,
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add entry")
+                Icon(Icons.Default.Add, contentDescription = "Add asset")
             }
         }
     ) { padding ->
@@ -190,18 +134,6 @@ fun DashboardScreen(
                 }
             }
 
-            item {
-                BackupRestoreCard(
-                    backupInfo = backupInfo,
-                    isBusy = isBackupBusy,
-                    onBackup = viewModel::createBackup,
-                    onRestore = viewModel::restoreLatestBackup,
-                    onSelectFolder = {
-                        backupFolderLauncher.launch(backupStore.suggestedBackupTreeInitialUri())
-                    }
-                )
-            }
-
             if (summary.categorySummaries.any { it.entryCount > 0 }) {
                 item {
                     Text(
@@ -211,14 +143,39 @@ fun DashboardScreen(
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
-                items(summary.categorySummaries.filter { it.entryCount > 0 }) { categorySummary ->
+                items(
+                    summary.categorySummaries.filter { it.entryCount > 0 },
+                    key = { "category-${it.category.name}" }
+                ) { categorySummary ->
                     CategoryBreakdownCard(categorySummary, summary.totalAssetsInInr)
                 }
             }
 
             item {
+                SectionHeader(
+                    title = "Bank Accounts",
+                    onAdd = onAddBankAccount,
+                    addLabel = "Add"
+                )
+            }
+
+            if (bankAccounts.isEmpty()) {
+                item {
+                    EmptyBankAccountsCard(onAddBankAccount)
+                }
+            } else {
+                items(bankAccounts, key = { "bank-${it.id}" }) { account ->
+                    BankAccountListItem(
+                        account = account,
+                        onClick = { onEditBankAccount(account.id) },
+                        onDelete = { bankAccountToDelete = account }
+                    )
+                }
+            }
+
+            item {
                 Text(
-                    "All Entries",
+                    "Investments & Liabilities",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 8.dp)
@@ -230,7 +187,7 @@ fun DashboardScreen(
                     EmptyStateCard(onAddAsset)
                 }
             } else {
-                items(assets, key = { it.id }) { asset ->
+                items(assets, key = { "asset-${it.id}" }) { asset ->
                     AssetListItem(
                         asset = asset,
                         usdToInrRate = exchangeRateState.rate,
@@ -261,6 +218,51 @@ fun DashboardScreen(
                 }
             }
         )
+    }
+
+    bankAccountToDelete?.let { account ->
+        AlertDialog(
+            onDismissRequest = { bankAccountToDelete = null },
+            title = { Text("Delete bank account?") },
+            text = { Text("Remove \"${account.accountName}\" at ${account.bankName}?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteBankAccount(account)
+                    bankAccountToDelete = null
+                }) {
+                    Text("Delete", color = LiabilityColor)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { bankAccountToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SectionHeader(
+    title: String,
+    onAdd: () -> Unit,
+    addLabel: String
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        TextButton(onClick = onAdd) {
+            Text(addLabel)
+        }
     }
 }
 
@@ -400,91 +402,6 @@ private fun CategoryBreakdownCard(summary: CategorySummary, totalAssets: Double)
                 fontWeight = FontWeight.SemiBold,
                 color = if (summary.category.isLiability) LiabilityColor else MaterialTheme.colorScheme.onSurface
             )
-        }
-    }
-}
-
-@Composable
-private fun BackupRestoreCard(
-    backupInfo: BackupInfo,
-    isBusy: Boolean,
-    onBackup: () -> Unit,
-    onRestore: () -> Unit,
-    onSelectFolder: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Storage,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        "JSON Backup",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        backupInfo.folderPath,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                    )
-                }
-            }
-
-            if (backupInfo.latestFileName != null) {
-                Text(
-                    "Latest: ${backupInfo.latestFileName} (${backupInfo.backupCount} total)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                )
-            } else {
-                Text(
-                    "No backups yet. Tap Backup to create a timestamped JSON file.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                )
-            }
-
-            Text(
-                "JSON files survive app uninstall. Restore loads the most recent backup.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
-            )
-
-            if (isBusy) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onBackup) {
-                        Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Backup")
-                    }
-                    OutlinedButton(onClick = onRestore) {
-                        Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Restore")
-                    }
-                }
-                OutlinedButton(onClick = onSelectFolder, modifier = Modifier.fillMaxWidth()) {
-                    Text("Choose Documents folder")
-                }
-            }
         }
     }
 }
@@ -633,6 +550,106 @@ private fun ExchangeRateCard(
 }
 
 @Composable
+private fun BankAccountListItem(
+    account: BankAccountEntity,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val amountColor = if (account.accountType.isLiability) LiabilityColor else MaterialTheme.colorScheme.onSurface
+    val maskedNumber = FormatUtils.maskAccountNumber(account.accountNumber)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BankAccountTypeIcon(account.accountType, size = 36)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    account.accountName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    account.bankName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+                Text(
+                    buildString {
+                        append(account.accountType.displayName)
+                        if (maskedNumber.isNotBlank()) {
+                            append(" · ")
+                            append(maskedNumber)
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    if (account.accountType.isLiability) {
+                        "-${FormatUtils.formatCurrency(account.balance, account.currency)}"
+                    } else {
+                        FormatUtils.formatCurrency(account.balance, account.currency)
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = amountColor
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BankAccountTypeIcon(type: BankAccountType, size: Int = 40) {
+    val icon = when (type) {
+        BankAccountType.SAVINGS -> Icons.Default.Savings
+        BankAccountType.CURRENT -> Icons.Default.AccountBalance
+        BankAccountType.CREDIT_CARD -> Icons.Default.CreditCard
+        BankAccountType.OVERDRAFT -> Icons.Default.AccountBalance
+    }
+    val bgColor = if (type.isLiability) {
+        LiabilityColor.copy(alpha = 0.12f)
+    } else {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+    }
+    val tint = if (type.isLiability) LiabilityColor else MaterialTheme.colorScheme.primary
+
+    Box(
+        modifier = Modifier
+            .size(size.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(bgColor),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = type.displayName,
+            tint = tint,
+            modifier = Modifier.size((size * 0.55f).dp)
+        )
+    }
+}
+
+@Composable
 private fun AssetListItem(
     asset: AssetEntity,
     usdToInrRate: Double,
@@ -703,6 +720,37 @@ private fun AssetListItem(
 }
 
 @Composable
+private fun EmptyBankAccountsCard(onAddBankAccount: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onAddBankAccount),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                "No bank accounts yet",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Tap Add to track savings, current, credit card, or overdraft balances",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+        }
+    }
+}
+
+@Composable
 private fun EmptyStateCard(onAddAsset: () -> Unit) {
     Card(
         modifier = Modifier
@@ -719,13 +767,13 @@ private fun EmptyStateCard(onAddAsset: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                "No entries yet",
+                "No investments yet",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "Tap + to add your first asset or liability",
+                "Tap + to add stocks, mutual funds, gold, real estate, or loans",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )

@@ -15,60 +15,81 @@ data class NetWorthSummary(
     val totalLiabilitiesInInr: Double,
     val netWorthInInr: Double,
     val categorySummaries: List<CategorySummary>,
-    val portfolioReturn: ReturnMetrics
+    val portfolioReturn: ReturnMetrics,
+    val totalBankAssetsInInr: Double = 0.0,
+    val totalBankLiabilitiesInInr: Double = 0.0
 )
 
 class AssetRepository(
-    private val dao: AssetDao,
+    private val assetDao: AssetDao,
+    private val bankAccountDao: BankAccountDao,
     private val exchangeRateRepository: ExchangeRateRepository,
     private val backupStore: PortfolioBackupStore
 ) {
-    val assets: Flow<List<AssetEntity>> = dao.getAllAssets()
+    val assets: Flow<List<AssetEntity>> = assetDao.getAllAssets()
+    val bankAccounts: Flow<List<BankAccountEntity>> = bankAccountDao.getAllBankAccounts()
 
     val netWorthSummary: Flow<NetWorthSummary> = combine(
         assets,
+        bankAccounts,
         exchangeRateRepository.state
-    ) { assetList, rateState ->
-        buildSummary(assetList, rateState.rate)
+    ) { assetList, bankList, rateState ->
+        buildSummary(assetList, bankList, rateState.rate)
     }
 
-    suspend fun getAsset(id: Long): AssetEntity? = dao.getAssetById(id)
+    suspend fun getAsset(id: Long): AssetEntity? = assetDao.getAssetById(id)
 
     suspend fun saveAsset(asset: AssetEntity): Long {
         return if (asset.id == 0L) {
-            dao.insert(asset)
+            assetDao.insert(asset)
         } else {
-            dao.update(asset.copy(updatedAt = System.currentTimeMillis()))
+            assetDao.update(asset.copy(updatedAt = System.currentTimeMillis()))
             asset.id
         }
     }
 
-    suspend fun deleteAsset(asset: AssetEntity) = dao.delete(asset)
+    suspend fun deleteAsset(asset: AssetEntity) = assetDao.delete(asset)
+
+    suspend fun getBankAccount(id: Long): BankAccountEntity? = bankAccountDao.getBankAccountById(id)
+
+    suspend fun saveBankAccount(bankAccount: BankAccountEntity): Long {
+        return if (bankAccount.id == 0L) {
+            bankAccountDao.insert(bankAccount)
+        } else {
+            bankAccountDao.update(bankAccount.copy(updatedAt = System.currentTimeMillis()))
+            bankAccount.id
+        }
+    }
+
+    suspend fun deleteBankAccount(bankAccount: BankAccountEntity) = bankAccountDao.delete(bankAccount)
 
     suspend fun getBackupInfo(): BackupInfo = backupStore.getBackupInfo()
 
     suspend fun createBackup(): BackupActionResult {
-        val assets = dao.getAllAssetsOnce()
-        if (assets.isEmpty()) {
-            return BackupActionResult.Error("Add at least one entry before backing up")
+        val snapshot = getPortfolioSnapshot()
+        if (snapshot.assets.isEmpty() && snapshot.bankAccounts.isEmpty()) {
+            return BackupActionResult.Error("Add at least one asset or bank account before backing up")
         }
-        return backupStore.createBackup(assets)
+        return backupStore.createBackup(snapshot)
     }
 
     suspend fun restoreLatestBackup(): BackupActionResult {
-        val assets = backupStore.loadLatestAssets()
+        val snapshot = backupStore.loadLatestSnapshot()
             ?: return BackupActionResult.Error("No backup found in Documents/NetWorthTracker")
 
-        if (assets.isEmpty()) {
+        if (snapshot.assets.isEmpty() && snapshot.bankAccounts.isEmpty()) {
             return BackupActionResult.Error("Latest backup file is empty")
         }
 
-        dao.deleteAll()
-        dao.insertAll(assets)
+        assetDao.deleteAll()
+        bankAccountDao.deleteAll()
+        if (snapshot.assets.isNotEmpty()) assetDao.insertAll(snapshot.assets)
+        if (snapshot.bankAccounts.isNotEmpty()) bankAccountDao.insertAll(snapshot.bankAccounts)
 
+        val totalEntries = snapshot.assets.size + snapshot.bankAccounts.size
         val latest = backupStore.getBackupInfo()
         return BackupActionResult.Success(
-            message = "Restored ${assets.size} entries from ${latest.latestFileName ?: "backup"}",
+            message = "Restored $totalEntries entries from ${latest.latestFileName ?: "backup"}",
             fileName = latest.latestFileName
         )
     }
@@ -78,6 +99,13 @@ class AssetRepository(
     }
 
     fun needsBackupFolderAccess(): Boolean = backupStore.needsFolderAccess()
+
+    private suspend fun getPortfolioSnapshot(): PortfolioSnapshot {
+        return PortfolioSnapshot(
+            assets = assetDao.getAllAssetsOnce(),
+            bankAccounts = bankAccountDao.getAllBankAccountsOnce()
+        )
+    }
 
     companion object {
         const val DEFAULT_USD_TO_INR = 84.0
@@ -89,20 +117,35 @@ class AssetRepository(
             }
         }
 
-        fun buildSummary(assets: List<AssetEntity>, usdToInrRate: Double): NetWorthSummary {
+        fun buildSummary(
+            assets: List<AssetEntity>,
+            bankAccounts: List<BankAccountEntity>,
+            usdToInrRate: Double
+        ): NetWorthSummary {
             val categoryTotals = AssetCategory.entries.associateWith { category ->
                 val entries = assets.filter { it.category == category }
                 val totalInInr = entries.sumOf { toInr(it.amount, it.currency, usdToInrRate) }
                 CategorySummary(category, totalInInr, entries.size)
             }
 
-            val totalAssets = categoryTotals.values
+            var totalAssets = categoryTotals.values
                 .filter { !it.category.isLiability }
                 .sumOf { it.totalInInr }
 
-            val totalLiabilities = categoryTotals.values
+            var totalLiabilities = categoryTotals.values
                 .filter { it.category.isLiability }
                 .sumOf { it.totalInInr }
+
+            val bankAssets = bankAccounts
+                .filter { !it.accountType.isLiability }
+                .sumOf { toInr(it.balance, it.currency, usdToInrRate) }
+
+            val bankLiabilities = bankAccounts
+                .filter { it.accountType.isLiability }
+                .sumOf { toInr(it.balance, it.currency, usdToInrRate) }
+
+            totalAssets += bankAssets
+            totalLiabilities += bankLiabilities
 
             return NetWorthSummary(
                 totalAssetsInInr = totalAssets,
@@ -111,7 +154,9 @@ class AssetRepository(
                 categorySummaries = categoryTotals.values
                     .filter { it.entryCount > 0 || !it.category.isLiability }
                     .sortedBy { it.category.ordinal },
-                portfolioReturn = ReturnCalculator.forAssets(assets, usdToInrRate)
+                portfolioReturn = ReturnCalculator.forAssets(assets, usdToInrRate),
+                totalBankAssetsInInr = bankAssets,
+                totalBankLiabilitiesInInr = bankLiabilities
             )
         }
     }

@@ -13,6 +13,11 @@ class NetWorthApp : Application() {
     val backupStore by lazy { PortfolioBackupStore(this, backupPreferences) }
     val exchangeRateRepository by lazy { ExchangeRateRepository(this) }
     val repository by lazy {
-        AssetRepository(database.assetDao(), exchangeRateRepository, backupStore)
+        AssetRepository(
+            database.assetDao(),
+            database.bankAccountDao(),
+            exchangeRateRepository,
+            backupStore
+        )
     }
 }

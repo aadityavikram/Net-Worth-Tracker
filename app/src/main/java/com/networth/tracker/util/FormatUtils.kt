@@ -63,6 +63,12 @@ object FormatUtils {
         }
         return "$sign${formatCompactInr(kotlin.math.abs(amount))}"
     }
+
+    fun maskAccountNumber(number: String): String {
+        if (number.isBlank()) return ""
+        if (number.length <= 4) return number
+        return "**** ${number.takeLast(4)}"
+    }
 }
 
 fun AssetCategory.iconName(): String = when (this) {

@@ -9,21 +9,38 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.networth.tracker.ui.navigation.Routes
 import com.networth.tracker.ui.screens.AddEditAssetScreen
+import com.networth.tracker.ui.screens.AddEditBankAccountScreen
+import com.networth.tracker.ui.screens.BackupScreen
 import com.networth.tracker.ui.screens.DashboardScreen
 import com.networth.tracker.ui.theme.NetWorthTrackerTheme
 import com.networth.tracker.viewmodel.AddEditAssetViewModel
 import com.networth.tracker.viewmodel.AddEditAssetViewModelFactory
+import com.networth.tracker.viewmodel.AddEditBankAccountViewModel
+import com.networth.tracker.viewmodel.AddEditBankAccountViewModelFactory
+import com.networth.tracker.viewmodel.BackupViewModel
+import com.networth.tracker.viewmodel.BackupViewModelFactory
 import com.networth.tracker.viewmodel.DashboardViewModel
 import com.networth.tracker.viewmodel.DashboardViewModelFactory
 
@@ -46,44 +63,105 @@ class MainActivity : ComponentActivity() {
             NetWorthTrackerTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val navController = rememberNavController()
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentRoute = navBackStackEntry?.destination?.route
+                    val showBottomBar = currentRoute == Routes.HOME || currentRoute == Routes.BACKUP
 
-                    NavHost(
-                        navController = navController,
-                        startDestination = Routes.DASHBOARD
-                    ) {
-                        composable(Routes.DASHBOARD) {
-                            val viewModel: DashboardViewModel = viewModel(
-                                factory = DashboardViewModelFactory(repository, exchangeRateRepository)
-                            )
-                            DashboardScreen(
-                                viewModel = viewModel,
-                                backupStore = app.backupStore,
-                                onAddAsset = {
-                                    navController.navigate(Routes.addEdit())
-                                },
-                                onEditAsset = { id ->
-                                    navController.navigate(Routes.addEdit(id))
+                    Scaffold(
+                        bottomBar = {
+                            if (showBottomBar) {
+                                NavigationBar {
+                                    NavigationBarItem(
+                                        selected = currentRoute == Routes.HOME,
+                                        onClick = {
+                                            navController.navigate(Routes.HOME) {
+                                                popUpTo(Routes.HOME) { inclusive = true }
+                                                launchSingleTop = true
+                                            }
+                                        },
+                                        icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+                                        label = { Text("Home") }
+                                    )
+                                    NavigationBarItem(
+                                        selected = currentRoute == Routes.BACKUP,
+                                        onClick = {
+                                            navController.navigate(Routes.BACKUP) {
+                                                popUpTo(Routes.HOME)
+                                                launchSingleTop = true
+                                            }
+                                        },
+                                        icon = { Icon(Icons.Default.Backup, contentDescription = "Backup") },
+                                        label = { Text("Backup") }
+                                    )
                                 }
-                            )
+                            }
                         }
+                    ) { padding ->
+                        NavHost(
+                            navController = navController,
+                            startDestination = Routes.HOME,
+                            modifier = Modifier.padding(padding)
+                        ) {
+                            composable(Routes.HOME) {
+                                val viewModel: DashboardViewModel = viewModel(
+                                    factory = DashboardViewModelFactory(repository, exchangeRateRepository)
+                                )
+                                DashboardScreen(
+                                    viewModel = viewModel,
+                                    onAddAsset = { navController.navigate(Routes.addEdit()) },
+                                    onEditAsset = { id -> navController.navigate(Routes.addEdit(id)) },
+                                    onAddBankAccount = { navController.navigate(Routes.addEditBank()) },
+                                    onEditBankAccount = { id -> navController.navigate(Routes.addEditBank(id)) }
+                                )
+                            }
 
-                        composable(
-                            route = Routes.ADD_EDIT,
-                            arguments = listOf(
-                                navArgument("assetId") {
-                                    type = NavType.LongType
-                                    defaultValue = -1L
-                                }
-                            )
-                        ) { backStackEntry ->
-                            val assetId = backStackEntry.arguments?.getLong("assetId")?.takeIf { it > 0 }
-                            val viewModel: AddEditAssetViewModel = viewModel(
-                                factory = AddEditAssetViewModelFactory(repository, assetId)
-                            )
-                            AddEditAssetScreen(
-                                viewModel = viewModel,
-                                onNavigateBack = { navController.popBackStack() }
-                            )
+                            composable(Routes.BACKUP) {
+                                val viewModel: BackupViewModel = viewModel(
+                                    factory = BackupViewModelFactory(repository)
+                                )
+                                BackupScreen(
+                                    viewModel = viewModel,
+                                    backupStore = app.backupStore
+                                )
+                            }
+
+                            composable(
+                                route = Routes.ADD_EDIT,
+                                arguments = listOf(
+                                    navArgument("assetId") {
+                                        type = NavType.LongType
+                                        defaultValue = -1L
+                                    }
+                                )
+                            ) { backStackEntry ->
+                                val assetId = backStackEntry.arguments?.getLong("assetId")?.takeIf { it > 0 }
+                                val viewModel: AddEditAssetViewModel = viewModel(
+                                    factory = AddEditAssetViewModelFactory(repository, assetId)
+                                )
+                                AddEditAssetScreen(
+                                    viewModel = viewModel,
+                                    onNavigateBack = { navController.popBackStack() }
+                                )
+                            }
+
+                            composable(
+                                route = Routes.ADD_EDIT_BANK,
+                                arguments = listOf(
+                                    navArgument("bankAccountId") {
+                                        type = NavType.LongType
+                                        defaultValue = -1L
+                                    }
+                                )
+                            ) { backStackEntry ->
+                                val bankAccountId = backStackEntry.arguments?.getLong("bankAccountId")?.takeIf { it > 0 }
+                                val viewModel: AddEditBankAccountViewModel = viewModel(
+                                    factory = AddEditBankAccountViewModelFactory(repository, bankAccountId)
+                                )
+                                AddEditBankAccountScreen(
+                                    viewModel = viewModel,
+                                    onNavigateBack = { navController.popBackStack() }
+                                )
+                            }
                         }
                     }
                 }

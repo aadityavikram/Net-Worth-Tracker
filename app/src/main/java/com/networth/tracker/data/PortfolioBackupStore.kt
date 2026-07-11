@@ -34,7 +34,7 @@ class PortfolioBackupStore(
     fun needsFolderAccess(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !hasBackupFolderConfigured()
 
-    fun createBackup(assets: List<AssetEntity>): BackupActionResult {
+    fun createBackup(snapshot: PortfolioSnapshot): BackupActionResult {
         if (needsFolderAccess()) {
             return BackupActionResult.NeedsFolderAccess(
                 "Select the Documents folder once to save backups that survive uninstall."
@@ -42,7 +42,7 @@ class PortfolioBackupStore(
         }
 
         val fileName = buildBackupFileName()
-        val json = serialize(assets, fileName)
+        val json = serialize(snapshot, fileName)
 
         if (saveToSafTree(fileName, json)) {
             return BackupActionResult.Success("Backup saved to $fileName", fileName)
@@ -55,10 +55,13 @@ class PortfolioBackupStore(
         return BackupActionResult.Error("Could not write backup. Grant Documents folder access and try again.")
     }
 
-    fun loadLatestAssets(): List<AssetEntity>? {
+    fun loadLatestSnapshot(): PortfolioSnapshot? {
         val backupFile = findLatestBackupFile() ?: return null
         return readBackupFile(backupFile)
     }
+
+    @Deprecated("Use loadLatestSnapshot")
+    fun loadLatestAssets(): List<AssetEntity>? = loadLatestSnapshot()?.assets
 
     fun getBackupInfo(): BackupInfo {
         val files = listAllBackupFiles()
@@ -91,14 +94,14 @@ class PortfolioBackupStore(
         return "${BACKUP_FILE_PREFIX}$timestamp$BACKUP_FILE_SUFFIX"
     }
 
-    private fun serialize(assets: List<AssetEntity>, fileName: String): String {
+    private fun serialize(snapshot: PortfolioSnapshot, fileName: String): String {
         val savedAt = System.currentTimeMillis()
         val root = JSONObject().apply {
             put("version", BACKUP_VERSION)
             put("fileName", fileName)
             put("savedAt", savedAt)
             put("assets", JSONArray().apply {
-                assets.forEach { asset ->
+                snapshot.assets.forEach { asset ->
                     put(JSONObject().apply {
                         put("id", asset.id)
                         put("name", asset.name)
@@ -111,17 +114,32 @@ class PortfolioBackupStore(
                     })
                 }
             })
+            put("bankAccounts", JSONArray().apply {
+                snapshot.bankAccounts.forEach { account ->
+                    put(JSONObject().apply {
+                        put("id", account.id)
+                        put("bankName", account.bankName)
+                        put("accountName", account.accountName)
+                        put("accountNumber", account.accountNumber)
+                        put("accountType", account.accountType.name)
+                        put("balance", account.balance)
+                        put("currency", account.currency.name)
+                        put("notes", account.notes)
+                        put("updatedAt", account.updatedAt)
+                    })
+                }
+            })
         }
         return root.toString(2)
     }
 
-    private fun deserialize(json: String): List<AssetEntity>? {
+    private fun deserialize(json: String): PortfolioSnapshot? {
         return try {
             val root = JSONObject(json)
-            val array = root.getJSONArray("assets")
-            buildList {
-                for (index in 0 until array.length()) {
-                    val item = array.getJSONObject(index)
+            val assetArray = root.getJSONArray("assets")
+            val assets = buildList {
+                for (index in 0 until assetArray.length()) {
+                    val item = assetArray.getJSONObject(index)
                     add(
                         AssetEntity(
                             id = item.getLong("id"),
@@ -136,12 +154,38 @@ class PortfolioBackupStore(
                     )
                 }
             }
+
+            val bankAccounts = if (root.has("bankAccounts")) {
+                val bankArray = root.getJSONArray("bankAccounts")
+                buildList {
+                    for (index in 0 until bankArray.length()) {
+                        val item = bankArray.getJSONObject(index)
+                        add(
+                            BankAccountEntity(
+                                id = item.getLong("id"),
+                                bankName = item.getString("bankName"),
+                                accountName = item.getString("accountName"),
+                                accountNumber = item.optString("accountNumber", ""),
+                                accountType = BankAccountType.valueOf(item.getString("accountType")),
+                                balance = item.getDouble("balance"),
+                                currency = Currency.valueOf(item.optString("currency", Currency.INR.name)),
+                                notes = item.optString("notes", ""),
+                                updatedAt = item.optLong("updatedAt", System.currentTimeMillis())
+                            )
+                        )
+                    }
+                }
+            } else {
+                emptyList()
+            }
+
+            PortfolioSnapshot(assets = assets, bankAccounts = bankAccounts)
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun readBackupFile(ref: BackupFileRef): List<AssetEntity>? {
+    private fun readBackupFile(ref: BackupFileRef): PortfolioSnapshot? {
         val json = when {
             ref.uri != null -> readJsonFromUri(ref.uri)
             ref.legacyFile != null -> ref.legacyFile.takeIf { it.exists() }?.readText(Charsets.UTF_8)
@@ -299,6 +343,6 @@ class PortfolioBackupStore(
         const val BACKUP_FOLDER = "NetWorthTracker"
         private const val BACKUP_FILE_PREFIX = "net_worth_backup_"
         private const val BACKUP_FILE_SUFFIX = ".json"
-        private const val BACKUP_VERSION = 1
+        private const val BACKUP_VERSION = 2
     }
 }

@@ -9,3 +9,23 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         db.execSQL("UPDATE assets SET investedAmount = amount")
     }
 }
+
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS bank_accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                bankName TEXT NOT NULL,
+                accountName TEXT NOT NULL,
+                accountNumber TEXT NOT NULL,
+                accountType TEXT NOT NULL,
+                balance REAL NOT NULL,
+                currency TEXT NOT NULL,
+                notes TEXT NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+    }
+}
