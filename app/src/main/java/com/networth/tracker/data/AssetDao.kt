@@ -34,6 +34,9 @@ interface AssetDao {
     @Delete
     suspend fun delete(asset: AssetEntity)
 
+    @Delete
+    suspend fun delete(assets: List<AssetEntity>)
+
     @Query("DELETE FROM assets WHERE category = :category")
     suspend fun deleteByCategory(category: AssetCategory)
 }

@@ -58,6 +58,10 @@ class AssetRepository(
 
     suspend fun deleteAsset(asset: AssetEntity) = assetDao.delete(asset)
 
+    suspend fun deleteAssets(assets: List<AssetEntity>) {
+        if (assets.isNotEmpty()) assetDao.delete(assets)
+    }
+
     /**
      * Imports mutual fund holdings from a CAS statement.
      * Stores invested (cost) and current (market) amounts; return % is derived on the dashboard.
@@ -132,9 +136,9 @@ class AssetRepository(
                 map[key] = h
             } else {
                 val preferNew = (!h.schemeName.startsWith("Mutual Fund") &&
-                    existing.schemeName.startsWith("Mutual Fund")) ||
-                    (h.isin.isNotBlank() && existing.isin.isBlank()) ||
-                    (h.units > existing.units)
+                        existing.schemeName.startsWith("Mutual Fund")) ||
+                        (h.isin.isNotBlank() && existing.isin.isBlank()) ||
+                        (h.units > existing.units)
                 if (preferNew) map[key] = h
             }
         }
@@ -153,6 +157,10 @@ class AssetRepository(
     }
 
     suspend fun deleteBankAccount(bankAccount: BankAccountEntity) = bankAccountDao.delete(bankAccount)
+
+    suspend fun deleteBankAccounts(bankAccounts: List<BankAccountEntity>) {
+        if (bankAccounts.isNotEmpty()) bankAccountDao.delete(bankAccounts)
+    }
 
     suspend fun getBackupInfo(): BackupInfo = backupStore.getBackupInfo()
 

@@ -1,8 +1,10 @@
 package com.networth.tracker.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Diamond
@@ -41,8 +45,10 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
@@ -118,7 +124,7 @@ private enum class DashboardSection {
     LOAN_EMI_CALCULATOR
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DashboardScreen(
     viewModel: DashboardViewModel,
@@ -133,21 +139,82 @@ fun DashboardScreen(
     val exchangeRateState by viewModel.exchangeRateState.collectAsStateWithLifecycle()
     var assetToDelete by remember { mutableStateOf<AssetEntity?>(null) }
     var bankAccountToDelete by remember { mutableStateOf<BankAccountEntity?>(null) }
+    var showMassDeleteConfirm by remember { mutableStateOf(false) }
     var selectedSection by remember { mutableStateOf(DashboardSection.HOME) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedAssetIds by remember { mutableStateOf(setOf<Long>()) }
+    var selectedBankAccountIds by remember { mutableStateOf(setOf<Long>()) }
 
     val assetTabAssets = remember(assets) { assets.filter { !it.category.isLiability } }
     val liabilityAssets = remember(assets) { assets.filter { it.category.isLiability } }
     val assetBankAccounts = remember(bankAccounts) { bankAccounts.filter { !it.accountType.isLiability } }
     val liabilityBankAccounts = remember(bankAccounts) { bankAccounts.filter { it.accountType.isLiability } }
 
-    val screenTitle = when (selectedSection) {
-        DashboardSection.HOME -> "Net Worth Tracker"
-        DashboardSection.BREAKDOWN -> "Breakdown"
-        DashboardSection.ASSETS -> "Assets"
-        DashboardSection.LIABILITIES -> "Liabilities"
-        DashboardSection.INVESTMENT_CALCULATOR -> "Investment Calculator"
-        DashboardSection.LOAN_EMI_CALCULATOR -> "Loan EMI Calculator"
+    val selectableAssets = when (selectedSection) {
+        DashboardSection.ASSETS -> assetTabAssets
+        DashboardSection.LIABILITIES -> liabilityAssets
+        else -> emptyList()
+    }
+    val selectableBankAccounts = when (selectedSection) {
+        DashboardSection.ASSETS -> assetBankAccounts
+        DashboardSection.LIABILITIES -> liabilityBankAccounts
+        else -> emptyList()
+    }
+    val selectedCount = selectedAssetIds.size + selectedBankAccountIds.size
+    val allSelectableCount = selectableAssets.size + selectableBankAccounts.size
+    val allSelected = allSelectableCount > 0 && selectedCount == allSelectableCount
+    val canSelect = selectedSection == DashboardSection.ASSETS ||
+        selectedSection == DashboardSection.LIABILITIES
+
+    fun clearSelection() {
+        selectionMode = false
+        selectedAssetIds = emptySet()
+        selectedBankAccountIds = emptySet()
+        showMassDeleteConfirm = false
+    }
+
+    fun enterSelectionMode(assetId: Long? = null, bankAccountId: Long? = null) {
+        selectionMode = true
+        selectedAssetIds = if (assetId != null) setOf(assetId) else emptySet()
+        selectedBankAccountIds = if (bankAccountId != null) setOf(bankAccountId) else emptySet()
+    }
+
+    fun toggleAssetSelection(id: Long) {
+        selectedAssetIds = if (id in selectedAssetIds) {
+            selectedAssetIds - id
+        } else {
+            selectedAssetIds + id
+        }
+    }
+
+    fun toggleBankAccountSelection(id: Long) {
+        selectedBankAccountIds = if (id in selectedBankAccountIds) {
+            selectedBankAccountIds - id
+        } else {
+            selectedBankAccountIds + id
+        }
+    }
+
+    fun selectAllVisible() {
+        selectedAssetIds = selectableAssets.map { it.id }.toSet()
+        selectedBankAccountIds = selectableBankAccounts.map { it.id }.toSet()
+    }
+
+    fun deselectAll() {
+        selectedAssetIds = emptySet()
+        selectedBankAccountIds = emptySet()
+    }
+
+    val screenTitle = when {
+        selectionMode -> "$selectedCount selected"
+        selectedSection == DashboardSection.HOME -> "Net Worth Tracker"
+        selectedSection == DashboardSection.BREAKDOWN -> "Breakdown"
+        selectedSection == DashboardSection.ASSETS -> "Assets"
+        selectedSection == DashboardSection.LIABILITIES -> "Liabilities"
+        selectedSection == DashboardSection.INVESTMENT_CALCULATOR -> "Investment Calculator"
+        selectedSection == DashboardSection.LOAN_EMI_CALCULATOR -> "Loan EMI Calculator"
+        else -> "Net Worth Tracker"
     }
 
     Scaffold(
@@ -155,33 +222,46 @@ fun DashboardScreen(
             DashboardTopBar(
                 screenTitle = screenTitle,
                 menuExpanded = menuExpanded,
+                selectionMode = selectionMode,
+                canSelect = canSelect && allSelectableCount > 0,
+                selectedCount = selectedCount,
+                allSelected = allSelected,
                 onMenuClick = { menuExpanded = true },
                 onMenuDismiss = { menuExpanded = false },
                 onSectionSelected = { section ->
+                    clearSelection()
                     selectedSection = section
                     menuExpanded = false
-                }
+                },
+                onEnterSelection = { selectionMode = true },
+                onExitSelection = { clearSelection() },
+                onToggleSelectAll = {
+                    if (allSelected) deselectAll() else selectAllVisible()
+                },
+                onDeleteSelected = { showMassDeleteConfirm = true }
             )
         },
         floatingActionButton = {
-            when (selectedSection) {
-                DashboardSection.ASSETS -> {
-                    FloatingActionButton(
-                        onClick = { onAddAsset(AssetAddContext.ASSETS) },
-                        containerColor = MaterialTheme.colorScheme.primary
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add asset")
+            if (!selectionMode) {
+                when (selectedSection) {
+                    DashboardSection.ASSETS -> {
+                        FloatingActionButton(
+                            onClick = { onAddAsset(AssetAddContext.ASSETS) },
+                            containerColor = MaterialTheme.colorScheme.primary
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add asset")
+                        }
                     }
-                }
-                DashboardSection.LIABILITIES -> {
-                    FloatingActionButton(
-                        onClick = { onAddAsset(AssetAddContext.LIABILITIES) },
-                        containerColor = MaterialTheme.colorScheme.primary
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add liability")
+                    DashboardSection.LIABILITIES -> {
+                        FloatingActionButton(
+                            onClick = { onAddAsset(AssetAddContext.LIABILITIES) },
+                            containerColor = MaterialTheme.colorScheme.primary
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add liability")
+                        }
                     }
+                    else -> Unit
                 }
-                else -> Unit
             }
         }
     ) { padding ->
@@ -206,23 +286,37 @@ fun DashboardScreen(
                 assets = assetTabAssets,
                 bankAccounts = assetBankAccounts,
                 exchangeRateState = exchangeRateState,
+                selectionMode = selectionMode,
+                selectedAssetIds = selectedAssetIds,
+                selectedBankAccountIds = selectedBankAccountIds,
                 onAddAsset = { onAddAsset(AssetAddContext.ASSETS) },
                 onEditAsset = onEditAsset,
                 onAddBankAccount = { onAddBankAccount(BankAccountAddContext.ASSETS) },
                 onEditBankAccount = onEditBankAccount,
                 onDeleteAsset = { assetToDelete = it },
-                onDeleteBankAccount = { bankAccountToDelete = it }
+                onDeleteBankAccount = { bankAccountToDelete = it },
+                onToggleAssetSelection = ::toggleAssetSelection,
+                onToggleBankAccountSelection = ::toggleBankAccountSelection,
+                onEnterSelectionWithAsset = { enterSelectionMode(assetId = it) },
+                onEnterSelectionWithBankAccount = { enterSelectionMode(bankAccountId = it) }
             )
             DashboardSection.LIABILITIES -> LiabilitiesTabContent(
                 assets = liabilityAssets,
                 bankAccounts = liabilityBankAccounts,
                 exchangeRateState = exchangeRateState,
+                selectionMode = selectionMode,
+                selectedAssetIds = selectedAssetIds,
+                selectedBankAccountIds = selectedBankAccountIds,
                 onAddAsset = { onAddAsset(AssetAddContext.LIABILITIES) },
                 onEditAsset = onEditAsset,
                 onAddBankAccount = { onAddBankAccount(BankAccountAddContext.LIABILITIES) },
                 onEditBankAccount = onEditBankAccount,
                 onDeleteAsset = { assetToDelete = it },
-                onDeleteBankAccount = { bankAccountToDelete = it }
+                onDeleteBankAccount = { bankAccountToDelete = it },
+                onToggleAssetSelection = ::toggleAssetSelection,
+                onToggleBankAccountSelection = ::toggleBankAccountSelection,
+                onEnterSelectionWithAsset = { enterSelectionMode(assetId = it) },
+                onEnterSelectionWithBankAccount = { enterSelectionMode(bankAccountId = it) }
             )
             DashboardSection.INVESTMENT_CALCULATOR -> InvestmentCalculatorTabContent()
             DashboardSection.LOAN_EMI_CALCULATOR -> LoanEmiCalculatorTabContent()
@@ -271,15 +365,50 @@ fun DashboardScreen(
             }
         )
     }
+
+    if (showMassDeleteConfirm) {
+        val entryLabel = if (selectedCount == 1) "entry" else "entries"
+        AlertDialog(
+            onDismissRequest = { showMassDeleteConfirm = false },
+            title = { Text("Delete $selectedCount $entryLabel?") },
+            text = {
+                Text("Remove the selected $entryLabel from your portfolio? This cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val assetsToRemove = selectableAssets.filter { it.id in selectedAssetIds }
+                    val accountsToRemove = selectableBankAccounts.filter { it.id in selectedBankAccountIds }
+                    viewModel.deleteAssets(assetsToRemove)
+                    viewModel.deleteBankAccounts(accountsToRemove)
+                    clearSelection()
+                }) {
+                    Text("Delete", color = LiabilityColor)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMassDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
 private fun DashboardTopBar(
     screenTitle: String,
     menuExpanded: Boolean,
+    selectionMode: Boolean,
+    canSelect: Boolean,
+    selectedCount: Int,
+    allSelected: Boolean,
     onMenuClick: () -> Unit,
     onMenuDismiss: () -> Unit,
-    onSectionSelected: (DashboardSection) -> Unit
+    onSectionSelected: (DashboardSection) -> Unit,
+    onEnterSelection: () -> Unit,
+    onExitSelection: () -> Unit,
+    onToggleSelectAll: () -> Unit,
+    onDeleteSelected: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -290,60 +419,113 @@ private fun DashboardTopBar(
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Box(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box {
-                    Row(
-                        modifier = Modifier.clickable(onClick = onMenuClick),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                if (selectionMode) {
+                    IconButton(onClick = onExitSelection) {
                         Icon(
-                            Icons.Default.Menu,
-                            contentDescription = "Open sections menu",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Text(
-                            screenTitle,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            Icons.Default.Close,
+                            contentDescription = "Cancel selection",
+                            tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = onMenuDismiss
+                    Text(
+                        screenTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 4.dp)
+                    )
+                    IconButton(onClick = onToggleSelectAll) {
+                        Icon(
+                            if (allSelected) Icons.Default.CheckBox else Icons.Default.SelectAll,
+                            contentDescription = if (allSelected) "Deselect all" else "Select all",
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                    IconButton(
+                        onClick = onDeleteSelected,
+                        enabled = selectedCount > 0
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Home") },
-                            onClick = { onSectionSelected(DashboardSection.HOME) }
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete selected",
+                            tint = if (selectedCount > 0) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.4f)
+                            }
                         )
-                        DropdownMenuItem(
-                            text = { Text("Breakdown") },
-                            onClick = { onSectionSelected(DashboardSection.BREAKDOWN) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Assets") },
-                            onClick = { onSectionSelected(DashboardSection.ASSETS) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Liabilities") },
-                            onClick = { onSectionSelected(DashboardSection.LIABILITIES) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Investment Calculator") },
-                            onClick = { onSectionSelected(DashboardSection.INVESTMENT_CALCULATOR) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Loan EMI Calculator") },
-                            onClick = { onSectionSelected(DashboardSection.LOAN_EMI_CALCULATOR) }
-                        )
+                    }
+                } else {
+                    Box(modifier = Modifier.weight(1f)) {
+                        Row(
+                            modifier = Modifier
+                                .clickable(onClick = onMenuClick)
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Menu,
+                                contentDescription = "Open sections menu",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Text(
+                                screenTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = onMenuDismiss
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Home") },
+                                onClick = { onSectionSelected(DashboardSection.HOME) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Breakdown") },
+                                onClick = { onSectionSelected(DashboardSection.BREAKDOWN) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Assets") },
+                                onClick = { onSectionSelected(DashboardSection.ASSETS) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Liabilities") },
+                                onClick = { onSectionSelected(DashboardSection.LIABILITIES) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Investment Calculator") },
+                                onClick = { onSectionSelected(DashboardSection.INVESTMENT_CALCULATOR) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Loan EMI Calculator") },
+                                onClick = { onSectionSelected(DashboardSection.LOAN_EMI_CALCULATOR) }
+                            )
+                        }
+                    }
+                    if (canSelect) {
+                        TextButton(onClick = onEnterSelection) {
+                            Text(
+                                "Select",
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
                     }
                 }
             }
@@ -1834,12 +2016,19 @@ private fun AssetsTabContent(
     assets: List<AssetEntity>,
     bankAccounts: List<BankAccountEntity>,
     exchangeRateState: ExchangeRateState,
+    selectionMode: Boolean,
+    selectedAssetIds: Set<Long>,
+    selectedBankAccountIds: Set<Long>,
     onAddAsset: () -> Unit,
     onEditAsset: (Long) -> Unit,
     onAddBankAccount: () -> Unit,
     onEditBankAccount: (Long) -> Unit,
     onDeleteAsset: (AssetEntity) -> Unit,
-    onDeleteBankAccount: (BankAccountEntity) -> Unit
+    onDeleteBankAccount: (BankAccountEntity) -> Unit,
+    onToggleAssetSelection: (Long) -> Unit,
+    onToggleBankAccountSelection: (Long) -> Unit,
+    onEnterSelectionWithAsset: (Long) -> Unit,
+    onEnterSelectionWithBankAccount: (Long) -> Unit
 ) {
     val usdToInrRate = exchangeRateState.rate
     val totalAssetsInInr = remember(assets, usdToInrRate) {
@@ -1868,7 +2057,8 @@ private fun AssetsTabContent(
             SectionHeader(
                 title = "Bank Accounts",
                 onAdd = onAddBankAccount,
-                addLabel = "Add"
+                addLabel = "Add",
+                showAdd = !selectionMode
             )
         }
         if (bankAccounts.isEmpty()) {
@@ -1883,7 +2073,18 @@ private fun AssetsTabContent(
             items(bankAccounts, key = { "bank-${it.id}" }) { account ->
                 BankAccountListItem(
                     account = account,
-                    onClick = { onEditBankAccount(account.id) },
+                    selectionMode = selectionMode,
+                    selected = account.id in selectedBankAccountIds,
+                    onClick = {
+                        if (selectionMode) {
+                            onToggleBankAccountSelection(account.id)
+                        } else {
+                            onEditBankAccount(account.id)
+                        }
+                    },
+                    onLongClick = {
+                        if (!selectionMode) onEnterSelectionWithBankAccount(account.id)
+                    },
                     onDelete = { onDeleteBankAccount(account) }
                 )
             }
@@ -1910,7 +2111,18 @@ private fun AssetsTabContent(
                 AssetListItem(
                     asset = asset,
                     usdToInrRate = exchangeRateState.rate,
-                    onClick = { onEditAsset(asset.id) },
+                    selectionMode = selectionMode,
+                    selected = asset.id in selectedAssetIds,
+                    onClick = {
+                        if (selectionMode) {
+                            onToggleAssetSelection(asset.id)
+                        } else {
+                            onEditAsset(asset.id)
+                        }
+                    },
+                    onLongClick = {
+                        if (!selectionMode) onEnterSelectionWithAsset(asset.id)
+                    },
                     onDelete = { onDeleteAsset(asset) }
                 )
             }
@@ -1923,12 +2135,19 @@ private fun LiabilitiesTabContent(
     assets: List<AssetEntity>,
     bankAccounts: List<BankAccountEntity>,
     exchangeRateState: ExchangeRateState,
+    selectionMode: Boolean,
+    selectedAssetIds: Set<Long>,
+    selectedBankAccountIds: Set<Long>,
     onAddAsset: () -> Unit,
     onEditAsset: (Long) -> Unit,
     onAddBankAccount: () -> Unit,
     onEditBankAccount: (Long) -> Unit,
     onDeleteAsset: (AssetEntity) -> Unit,
-    onDeleteBankAccount: (BankAccountEntity) -> Unit
+    onDeleteBankAccount: (BankAccountEntity) -> Unit,
+    onToggleAssetSelection: (Long) -> Unit,
+    onToggleBankAccountSelection: (Long) -> Unit,
+    onEnterSelectionWithAsset: (Long) -> Unit,
+    onEnterSelectionWithBankAccount: (Long) -> Unit
 ) {
     val usdToInrRate = exchangeRateState.rate
     val totalLiabilitiesInInr = remember(assets, usdToInrRate) {
@@ -1958,7 +2177,8 @@ private fun LiabilitiesTabContent(
             SectionHeader(
                 title = "Outstanding Credit",
                 onAdd = onAddBankAccount,
-                addLabel = "Add"
+                addLabel = "Add",
+                showAdd = !selectionMode
             )
         }
         if (bankAccounts.isEmpty()) {
@@ -1973,7 +2193,18 @@ private fun LiabilitiesTabContent(
             items(bankAccounts, key = { "bank-${it.id}" }) { account ->
                 BankAccountListItem(
                     account = account,
-                    onClick = { onEditBankAccount(account.id) },
+                    selectionMode = selectionMode,
+                    selected = account.id in selectedBankAccountIds,
+                    onClick = {
+                        if (selectionMode) {
+                            onToggleBankAccountSelection(account.id)
+                        } else {
+                            onEditBankAccount(account.id)
+                        }
+                    },
+                    onLongClick = {
+                        if (!selectionMode) onEnterSelectionWithBankAccount(account.id)
+                    },
                     onDelete = { onDeleteBankAccount(account) }
                 )
             }
@@ -2000,7 +2231,18 @@ private fun LiabilitiesTabContent(
                 AssetListItem(
                     asset = asset,
                     usdToInrRate = exchangeRateState.rate,
-                    onClick = { onEditAsset(asset.id) },
+                    selectionMode = selectionMode,
+                    selected = asset.id in selectedAssetIds,
+                    onClick = {
+                        if (selectionMode) {
+                            onToggleAssetSelection(asset.id)
+                        } else {
+                            onEditAsset(asset.id)
+                        }
+                    },
+                    onLongClick = {
+                        if (!selectionMode) onEnterSelectionWithAsset(asset.id)
+                    },
                     onDelete = { onDeleteAsset(asset) }
                 )
             }
@@ -2046,7 +2288,8 @@ private fun GroupBackHeader(
 private fun SectionHeader(
     title: String,
     onAdd: () -> Unit,
-    addLabel: String
+    addLabel: String,
+    showAdd: Boolean = true
 ) {
     Row(
         modifier = Modifier
@@ -2060,8 +2303,10 @@ private fun SectionHeader(
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold
         )
-        TextButton(onClick = onAdd) {
-            Text(addLabel)
+        if (showAdd) {
+            TextButton(onClick = onAdd) {
+                Text(addLabel)
+            }
         }
     }
 }
@@ -2425,11 +2670,15 @@ private fun ExchangeRateCard(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BankAccountListItem(
     account: BankAccountEntity,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null
 ) {
     val amountColor = if (account.accountType.isLiability) LiabilityColor else MaterialTheme.colorScheme.onSurface
     val maskedNumber = FormatUtils.maskAccountNumber(account.accountNumber)
@@ -2437,7 +2686,10 @@ private fun BankAccountListItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
@@ -2449,6 +2701,13 @@ private fun BankAccountListItem(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (selectionMode) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = { onClick() }
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
                 BankAccountTypeIcon(account.accountType, size = 36)
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -2482,12 +2741,14 @@ private fun BankAccountListItem(
                         color = amountColor
                     )
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                    )
+                if (!selectionMode) {
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+                    }
                 }
             }
             if (account.accountType == BankAccountType.CREDIT_CARD) {
@@ -2544,19 +2805,26 @@ private fun BankAccountTypeIcon(type: BankAccountType, size: Int = 40) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AssetListItem(
     asset: AssetEntity,
     usdToInrRate: Double,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null
 ) {
     val returnMetrics = ReturnCalculator.forAsset(asset, usdToInrRate)
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
@@ -2568,6 +2836,13 @@ private fun AssetListItem(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (selectionMode) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = { onClick() }
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
                 CategoryIcon(asset.category, size = 36)
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -2578,12 +2853,14 @@ private fun AssetListItem(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                    )
+                if (!selectionMode) {
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+                    }
                 }
             }
 
