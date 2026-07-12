@@ -57,9 +57,21 @@ class DashboardViewModel(
         }
     }
 
+    fun deleteAssets(assets: List<AssetEntity>) {
+        viewModelScope.launch {
+            repository.deleteAssets(assets)
+        }
+    }
+
     fun deleteBankAccount(bankAccount: BankAccountEntity) {
         viewModelScope.launch {
             repository.deleteBankAccount(bankAccount)
+        }
+    }
+
+    fun deleteBankAccounts(bankAccounts: List<BankAccountEntity>) {
+        viewModelScope.launch {
+            repository.deleteBankAccounts(bankAccounts)
         }
     }
 }
