@@ -57,6 +57,10 @@ class AssetRepository(
 
     suspend fun deleteAsset(asset: AssetEntity) = assetDao.delete(asset)
 
+    suspend fun deleteAssets(assets: List<AssetEntity>) {
+        if (assets.isNotEmpty()) assetDao.delete(assets)
+    }
+
     suspend fun getBankAccount(id: Long): BankAccountEntity? = bankAccountDao.getBankAccountById(id)
 
     suspend fun saveBankAccount(bankAccount: BankAccountEntity): Long {
@@ -69,6 +73,10 @@ class AssetRepository(
     }
 
     suspend fun deleteBankAccount(bankAccount: BankAccountEntity) = bankAccountDao.delete(bankAccount)
+
+    suspend fun deleteBankAccounts(bankAccounts: List<BankAccountEntity>) {
+        if (bankAccounts.isNotEmpty()) bankAccountDao.delete(bankAccounts)
+    }
 
     suspend fun getBackupInfo(): BackupInfo = backupStore.getBackupInfo()
 

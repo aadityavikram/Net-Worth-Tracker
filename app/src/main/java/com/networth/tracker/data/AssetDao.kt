@@ -33,4 +33,7 @@ interface AssetDao {
 
     @Delete
     suspend fun delete(asset: AssetEntity)
+
+    @Delete
+    suspend fun delete(assets: List<AssetEntity>)
 }
