@@ -110,6 +110,8 @@ class PortfolioBackupStore(
                         put("investedAmount", asset.investedAmount)
                         put("currency", asset.currency.name)
                         put("notes", asset.notes)
+                        put("interestRate", asset.interestRate)
+                        put("dateTakenMillis", asset.dateTakenMillis)
                         put("updatedAt", asset.updatedAt)
                     })
                 }
@@ -125,6 +127,7 @@ class PortfolioBackupStore(
                         put("balance", account.balance)
                         put("currency", account.currency.name)
                         put("notes", account.notes)
+                        put("creditLimit", account.creditLimit)
                         put("updatedAt", account.updatedAt)
                     })
                 }
@@ -149,6 +152,8 @@ class PortfolioBackupStore(
                             investedAmount = item.optDouble("investedAmount", item.getDouble("amount")),
                             currency = Currency.valueOf(item.getString("currency")),
                             notes = item.optString("notes", ""),
+                            interestRate = item.optDouble("interestRate", 0.0),
+                            dateTakenMillis = item.optLong("dateTakenMillis", 0L),
                             updatedAt = item.optLong("updatedAt", System.currentTimeMillis())
                         )
                     )
@@ -170,6 +175,7 @@ class PortfolioBackupStore(
                                 balance = item.getDouble("balance"),
                                 currency = Currency.valueOf(item.optString("currency", Currency.INR.name)),
                                 notes = item.optString("notes", ""),
+                                creditLimit = item.optDouble("creditLimit", 0.0),
                                 updatedAt = item.optLong("updatedAt", System.currentTimeMillis())
                             )
                         )
@@ -343,6 +349,6 @@ class PortfolioBackupStore(
         const val BACKUP_FOLDER = "NetWorthTracker"
         private const val BACKUP_FILE_PREFIX = "net_worth_backup_"
         private const val BACKUP_FILE_SUFFIX = ".json"
-        private const val BACKUP_VERSION = 2
+        private const val BACKUP_VERSION = 3
     }
 }

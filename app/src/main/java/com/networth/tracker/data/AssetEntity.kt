@@ -13,5 +13,7 @@ data class AssetEntity(
     val investedAmount: Double = 0.0,
     val currency: Currency,
     val notes: String = "",
+    val interestRate: Double = 0.0,
+    val dateTakenMillis: Long = 0L,
     val updatedAt: Long = System.currentTimeMillis()
 )

@@ -29,6 +29,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.networth.tracker.data.AssetAddContext
+import com.networth.tracker.data.BankAccountAddContext
 import com.networth.tracker.ui.navigation.Routes
 import com.networth.tracker.ui.screens.AddEditAssetScreen
 import com.networth.tracker.ui.screens.AddEditBankAccountScreen
@@ -108,9 +110,17 @@ class MainActivity : ComponentActivity() {
                                 )
                                 DashboardScreen(
                                     viewModel = viewModel,
-                                    onAddAsset = { navController.navigate(Routes.addEdit()) },
+                                    onAddAsset = { context ->
+                                        navController.navigate(
+                                            Routes.addEdit(context = context.name)
+                                        )
+                                    },
                                     onEditAsset = { id -> navController.navigate(Routes.addEdit(id)) },
-                                    onAddBankAccount = { navController.navigate(Routes.addEditBank()) },
+                                    onAddBankAccount = { context ->
+                                        navController.navigate(
+                                            Routes.addEditBank(context = context.name)
+                                        )
+                                    },
                                     onEditBankAccount = { id -> navController.navigate(Routes.addEditBank(id)) }
                                 )
                             }
@@ -131,12 +141,24 @@ class MainActivity : ComponentActivity() {
                                     navArgument("assetId") {
                                         type = NavType.LongType
                                         defaultValue = -1L
+                                    },
+                                    navArgument("context") {
+                                        type = NavType.StringType
+                                        nullable = true
+                                        defaultValue = null
                                     }
                                 )
                             ) { backStackEntry ->
                                 val assetId = backStackEntry.arguments?.getLong("assetId")?.takeIf { it > 0 }
+                                val addContext = backStackEntry.arguments
+                                    ?.getString("context")
+                                    ?.let { runCatching { AssetAddContext.valueOf(it) }.getOrNull() }
                                 val viewModel: AddEditAssetViewModel = viewModel(
-                                    factory = AddEditAssetViewModelFactory(repository, assetId)
+                                    factory = AddEditAssetViewModelFactory(
+                                        repository,
+                                        assetId,
+                                        addContext
+                                    )
                                 )
                                 AddEditAssetScreen(
                                     viewModel = viewModel,
@@ -150,12 +172,24 @@ class MainActivity : ComponentActivity() {
                                     navArgument("bankAccountId") {
                                         type = NavType.LongType
                                         defaultValue = -1L
+                                    },
+                                    navArgument("context") {
+                                        type = NavType.StringType
+                                        nullable = true
+                                        defaultValue = null
                                     }
                                 )
                             ) { backStackEntry ->
                                 val bankAccountId = backStackEntry.arguments?.getLong("bankAccountId")?.takeIf { it > 0 }
+                                val addContext = backStackEntry.arguments
+                                    ?.getString("context")
+                                    ?.let { runCatching { BankAccountAddContext.valueOf(it) }.getOrNull() }
                                 val viewModel: AddEditBankAccountViewModel = viewModel(
-                                    factory = AddEditBankAccountViewModelFactory(repository, bankAccountId)
+                                    factory = AddEditBankAccountViewModelFactory(
+                                        repository,
+                                        bankAccountId,
+                                        addContext
+                                    )
                                 )
                                 AddEditBankAccountScreen(
                                     viewModel = viewModel,

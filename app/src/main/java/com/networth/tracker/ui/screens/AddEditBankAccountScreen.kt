@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.networth.tracker.data.BankAccountType
 import com.networth.tracker.data.Currency
+import com.networth.tracker.util.FormatUtils
 import com.networth.tracker.viewmodel.AddEditBankAccountViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -91,6 +92,7 @@ fun AddEditBankAccountScreen(
             ) {
                 Text("Account Type", style = MaterialTheme.typography.titleSmall)
                 BankAccountTypeSelector(
+                    allowedTypes = viewModel.resolvedAllowedAccountTypes(),
                     selected = formState.accountType,
                     onSelect = viewModel::onAccountTypeChange
                 )
@@ -142,6 +144,28 @@ fun AddEditBankAccountScreen(
                     singleLine = true
                 )
 
+                if (formState.accountType == BankAccountType.CREDIT_CARD) {
+                    OutlinedTextField(
+                        value = formState.creditLimit,
+                        onValueChange = viewModel::onCreditLimitChange,
+                        label = { Text("Total Credit Limit") },
+                        placeholder = { Text("Maximum credit available") },
+                        isError = formState.creditLimitError != null,
+                        supportingText = formState.creditLimitError?.let { { Text(it) } },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    formState.creditUtilisationPercent?.let { utilisation ->
+                        Text(
+                            "Utilisation: ${FormatUtils.formatPercent(utilisation)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+
                 Text("Currency", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Currency.entries.forEach { currency ->
@@ -177,9 +201,15 @@ fun AddEditBankAccountScreen(
 
 @Composable
 private fun BankAccountTypeSelector(
+    allowedTypes: List<BankAccountType>,
     selected: BankAccountType,
     onSelect: (BankAccountType) -> Unit
 ) {
+    if (allowedTypes.size <= 3) {
+        BankAccountTypeChipRow(allowedTypes, selected, onSelect)
+        return
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             "Assets",

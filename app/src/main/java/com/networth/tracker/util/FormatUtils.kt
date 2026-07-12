@@ -69,6 +69,15 @@ object FormatUtils {
         if (number.length <= 4) return number
         return "**** ${number.takeLast(4)}"
     }
+
+    fun formatPercent(value: Double): String =
+        "${String.format(Locale.US, "%.1f", value)}%"
+
+    fun formatDate(millis: Long): String {
+        if (millis <= 0L) return ""
+        val formatter = java.text.SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+        return formatter.format(java.util.Date(millis))
+    }
 }
 
 fun AssetCategory.iconName(): String = when (this) {
@@ -80,4 +89,6 @@ fun AssetCategory.iconName(): String = when (this) {
     AssetCategory.GOLD -> "Diamond"
     AssetCategory.REAL_ESTATE -> "Home"
     AssetCategory.HOME_LOAN -> "CreditCard"
+    AssetCategory.VEHICLE_LOAN -> "DirectionsCar"
+    AssetCategory.PERSONAL_LOAN -> "Person"
 }

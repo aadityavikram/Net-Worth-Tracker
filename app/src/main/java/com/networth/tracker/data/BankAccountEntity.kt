@@ -14,5 +14,11 @@ data class BankAccountEntity(
     val balance: Double,
     val currency: Currency = Currency.INR,
     val notes: String = "",
+    val creditLimit: Double = 0.0,
     val updatedAt: Long = System.currentTimeMillis()
-)
+) {
+    fun creditUtilisationPercent(): Double? {
+        if (accountType != BankAccountType.CREDIT_CARD || creditLimit <= 0) return null
+        return (balance / creditLimit) * 100.0
+    }
+}

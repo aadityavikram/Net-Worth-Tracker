@@ -10,6 +10,12 @@ data class CategorySummary(
     val entryCount: Int
 )
 
+data class BankAccountTypeSummary(
+    val accountType: BankAccountType,
+    val totalInInr: Double,
+    val entryCount: Int
+)
+
 data class NetWorthSummary(
     val totalAssetsInInr: Double,
     val totalLiabilitiesInInr: Double,
@@ -17,7 +23,8 @@ data class NetWorthSummary(
     val categorySummaries: List<CategorySummary>,
     val portfolioReturn: ReturnMetrics,
     val totalBankAssetsInInr: Double = 0.0,
-    val totalBankLiabilitiesInInr: Double = 0.0
+    val totalBankLiabilitiesInInr: Double = 0.0,
+    val outstandingSummaries: List<BankAccountTypeSummary> = emptyList()
 )
 
 class AssetRepository(
@@ -144,6 +151,19 @@ class AssetRepository(
                 .filter { it.accountType.isLiability }
                 .sumOf { toInr(it.balance, it.currency, usdToInrRate) }
 
+            val outstandingSummaries = BankAccountType.liabilities.mapNotNull { type ->
+                val entries = bankAccounts.filter { it.accountType == type }
+                if (entries.isEmpty()) {
+                    null
+                } else {
+                    BankAccountTypeSummary(
+                        accountType = type,
+                        totalInInr = entries.sumOf { toInr(it.balance, it.currency, usdToInrRate) },
+                        entryCount = entries.size
+                    )
+                }
+            }
+
             totalAssets += bankAssets
             totalLiabilities += bankLiabilities
 
@@ -156,7 +176,8 @@ class AssetRepository(
                     .sortedBy { it.category.ordinal },
                 portfolioReturn = ReturnCalculator.forAssets(assets, usdToInrRate),
                 totalBankAssetsInInr = bankAssets,
-                totalBankLiabilitiesInInr = bankLiabilities
+                totalBankLiabilitiesInInr = bankLiabilities,
+                outstandingSummaries = outstandingSummaries
             )
         }
     }
