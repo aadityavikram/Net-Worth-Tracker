@@ -6,8 +6,14 @@ import com.networth.tracker.data.AssetRepository
 import com.networth.tracker.data.BackupPreferences
 import com.networth.tracker.data.ExchangeRateRepository
 import com.networth.tracker.data.PortfolioBackupStore
+import com.networth.tracker.data.cas.CasPdfImporter
 
 class NetWorthApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        CasPdfImporter.ensureInitialized(this)
+    }
+
     val database by lazy { AppDatabase.getInstance(this) }
     val backupPreferences by lazy { BackupPreferences(this) }
     val backupStore by lazy { PortfolioBackupStore(this, backupPreferences) }

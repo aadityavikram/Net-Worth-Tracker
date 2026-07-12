@@ -1,6 +1,7 @@
 package com.networth.tracker.data
 
 import android.net.Uri
+import com.networth.tracker.data.cas.CasHolding
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
@@ -56,6 +57,89 @@ class AssetRepository(
     }
 
     suspend fun deleteAsset(asset: AssetEntity) = assetDao.delete(asset)
+
+    /**
+     * Imports mutual fund holdings from a CAS statement.
+     * Stores invested (cost) and current (market) amounts; return % is derived on the dashboard.
+     */
+    suspend fun importMutualFundHoldings(
+        holdings: List<CasHolding>,
+        replaceExisting: Boolean
+    ): Int {
+        if (holdings.isEmpty()) return 0
+        val unique = consolidateCasHoldings(holdings)
+        if (replaceExisting) {
+            assetDao.deleteByCategory(AssetCategory.MUTUAL_FUNDS)
+        } else {
+            // Drop any existing MF rows that match incoming folios to avoid duplicates.
+            val incomingFolios = unique.map { it.folio.replace(" ", "") }.filter { it.isNotBlank() }.toSet()
+            if (incomingFolios.isNotEmpty()) {
+                val existing = assetDao.getAllAssetsOnce()
+                    .filter { it.category == AssetCategory.MUTUAL_FUNDS }
+                for (asset in existing) {
+                    val folio = Regex("""Folio:\s*([0-9/]+)""")
+                        .find(asset.notes)?.groupValues?.get(1)
+                        ?.replace(" ", "")
+                    if (folio != null && folio in incomingFolios) {
+                        assetDao.delete(asset)
+                    }
+                }
+            }
+        }
+        val now = System.currentTimeMillis()
+        val entities = unique.map { holding ->
+            val notes = buildString {
+                if (holding.folio.isNotBlank()) append("Folio: ${holding.folio}")
+                if (holding.isin.isNotBlank()) {
+                    if (isNotEmpty()) append(" · ")
+                    append("ISIN: ${holding.isin}")
+                }
+                if (holding.asOfDate.isNotBlank()) {
+                    if (isNotEmpty()) append(" · ")
+                    append("As of ${holding.asOfDate}")
+                }
+                if (holding.units > 0) {
+                    if (isNotEmpty()) append(" · ")
+                    append("Units: ${"%.3f".format(holding.units)}")
+                }
+            }
+            AssetEntity(
+                name = holding.schemeName,
+                category = AssetCategory.MUTUAL_FUNDS,
+                amount = holding.currentAmount,
+                investedAmount = holding.investedAmount,
+                currency = Currency.INR,
+                notes = notes,
+                updatedAt = now
+            )
+        }
+        assetDao.insertAll(entities)
+        return entities.size
+    }
+
+    private fun consolidateCasHoldings(holdings: List<CasHolding>): List<CasHolding> {
+        val map = LinkedHashMap<String, CasHolding>()
+        for (h in holdings) {
+            if (h.currentAmount <= 0) continue
+            val folio = h.folio.replace(" ", "")
+            val key = when {
+                folio.isNotBlank() && h.isin.isNotBlank() -> "$folio|${h.isin}"
+                folio.isNotBlank() -> "$folio|${"%.2f".format(h.investedAmount)}|${"%.2f".format(h.currentAmount)}"
+                else -> "${h.isin}|${"%.2f".format(h.investedAmount)}|${"%.2f".format(h.currentAmount)}"
+            }
+            val existing = map[key]
+            if (existing == null) {
+                map[key] = h
+            } else {
+                val preferNew = (!h.schemeName.startsWith("Mutual Fund") &&
+                    existing.schemeName.startsWith("Mutual Fund")) ||
+                    (h.isin.isNotBlank() && existing.isin.isBlank()) ||
+                    (h.units > existing.units)
+                if (preferNew) map[key] = h
+            }
+        }
+        return map.values.toList()
+    }
 
     suspend fun getBankAccount(id: Long): BankAccountEntity? = bankAccountDao.getBankAccountById(id)
 

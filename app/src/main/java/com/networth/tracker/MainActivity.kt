@@ -155,6 +155,7 @@ class MainActivity : ComponentActivity() {
                                     ?.let { runCatching { AssetAddContext.valueOf(it) }.getOrNull() }
                                 val viewModel: AddEditAssetViewModel = viewModel(
                                     factory = AddEditAssetViewModelFactory(
+                                        application,
                                         repository,
                                         assetId,
                                         addContext
