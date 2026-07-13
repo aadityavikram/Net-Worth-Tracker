@@ -1,6 +1,7 @@
 package com.networth.tracker.data
 
 import android.net.Uri
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
@@ -28,6 +29,7 @@ data class NetWorthSummary(
 )
 
 class AssetRepository(
+    private val database: AppDatabase,
     private val assetDao: AssetDao,
     private val bankAccountDao: BankAccountDao,
     private val exchangeRateRepository: ExchangeRateRepository,
@@ -96,10 +98,12 @@ class AssetRepository(
             return BackupActionResult.Error("Latest backup file is empty")
         }
 
-        assetDao.deleteAll()
-        bankAccountDao.deleteAll()
-        if (snapshot.assets.isNotEmpty()) assetDao.insertAll(snapshot.assets)
-        if (snapshot.bankAccounts.isNotEmpty()) bankAccountDao.insertAll(snapshot.bankAccounts)
+        database.withTransaction {
+            assetDao.deleteAll()
+            bankAccountDao.deleteAll()
+            if (snapshot.assets.isNotEmpty()) assetDao.insertAll(snapshot.assets)
+            if (snapshot.bankAccounts.isNotEmpty()) bankAccountDao.insertAll(snapshot.bankAccounts)
+        }
 
         val totalEntries = snapshot.assets.size + snapshot.bankAccounts.size
         val latest = backupStore.getBackupInfo()

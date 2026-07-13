@@ -14,6 +14,7 @@ class NetWorthApp : Application() {
     val exchangeRateRepository by lazy { ExchangeRateRepository(this) }
     val repository by lazy {
         AssetRepository(
+            database,
             database.assetDao(),
             database.bankAccountDao(),
             exchangeRateRepository,

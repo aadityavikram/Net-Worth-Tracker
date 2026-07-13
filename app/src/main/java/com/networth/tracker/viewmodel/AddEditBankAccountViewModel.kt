@@ -153,8 +153,8 @@ class AddEditBankAccountViewModel(
         }
 
         val balance = state.balance.toDoubleOrNull()
-        if (balance == null || balance <= 0) {
-            _formState.update { it.copy(balanceError = "Enter a valid balance") }
+        if (balance == null || balance < 0) {
+            _formState.update { it.copy(balanceError = "Enter a valid balance (0 or more)") }
             valid = false
         }
 

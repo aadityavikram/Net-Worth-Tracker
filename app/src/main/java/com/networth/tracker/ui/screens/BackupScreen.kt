@@ -60,6 +60,7 @@ fun BackupScreen(
     val isBackupBusy by viewModel.isBackupBusy.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showFolderDialog by remember { mutableStateOf(false) }
+    var showRestoreConfirm by remember { mutableStateOf(false) }
 
     val backupFolderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -103,6 +104,32 @@ fun BackupScreen(
         )
     }
 
+    if (showRestoreConfirm) {
+        val latestName = backupInfo.latestFileName ?: "the latest backup"
+        AlertDialog(
+            onDismissRequest = { showRestoreConfirm = false },
+            title = { Text("Restore backup?") },
+            text = {
+                Text(
+                    "This replaces all current assets and bank accounts with data from $latestName. This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRestoreConfirm = false
+                    viewModel.restoreLatestBackup()
+                }) {
+                    Text("Restore")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -135,7 +162,7 @@ fun BackupScreen(
                     backupInfo = backupInfo,
                     isBusy = isBackupBusy,
                     onBackup = viewModel::createBackup,
-                    onRestore = viewModel::restoreLatestBackup,
+                    onRestore = { showRestoreConfirm = true },
                     onSelectFolder = {
                         backupFolderLauncher.launch(backupStore.suggestedBackupTreeInitialUri())
                     }
@@ -202,7 +229,7 @@ private fun BackupRestoreCard(
             }
 
             Text(
-                "JSON files survive app uninstall. Restore loads the most recent backup.",
+                "JSON files survive app uninstall. Restore replaces current data with the most recent backup after confirmation.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
             )
