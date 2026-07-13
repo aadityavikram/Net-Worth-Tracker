@@ -64,6 +64,8 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

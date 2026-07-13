@@ -22,6 +22,7 @@ data class AssetFormState(
     val currentAmount: String = "",
     val interestRate: String = "",
     val dateTakenMillis: Long = 0L,
+    val valuationDateMillis: Long = System.currentTimeMillis(),
     val currency: Currency = Currency.USD,
     val notes: String = "",
     val isLoading: Boolean = false,
@@ -38,7 +39,9 @@ class AddEditAssetViewModel(
     private val addContext: AssetAddContext?
 ) : ViewModel() {
 
-    private val _formState = MutableStateFlow(AssetFormState())
+    private val _formState = MutableStateFlow(
+        AssetFormState(dateTakenMillis = System.currentTimeMillis())
+    )
     val formState: StateFlow<AssetFormState> = _formState.asStateFlow()
 
     fun resolvedAllowedCategories(): List<AssetCategory> {
@@ -70,7 +73,9 @@ class AddEditAssetViewModel(
                             },
                             currentAmount = asset.amount.toString(),
                             interestRate = if (asset.interestRate > 0) asset.interestRate.toString() else "",
-                            dateTakenMillis = asset.dateTakenMillis,
+                            dateTakenMillis = asset.dateTakenMillis.takeIf { it > 0 } ?: asset.updatedAt,
+                            valuationDateMillis = asset.valuationDateMillis.takeIf { it > 0 }
+                                ?: System.currentTimeMillis(),
                             currency = asset.currency,
                             notes = asset.notes
                         )
@@ -83,7 +88,9 @@ class AddEditAssetViewModel(
             _formState.update {
                 it.copy(
                     category = defaultCategory,
-                    currency = defaultCategory.defaultCurrency
+                    currency = defaultCategory.defaultCurrency,
+                    dateTakenMillis = System.currentTimeMillis(),
+                    valuationDateMillis = System.currentTimeMillis()
                 )
             }
         }
@@ -125,6 +132,10 @@ class AddEditAssetViewModel(
 
     fun onDateTakenChange(millis: Long) {
         _formState.update { it.copy(dateTakenMillis = millis) }
+    }
+
+    fun onValuationDateChange(millis: Long) {
+        _formState.update { it.copy(valuationDateMillis = millis) }
     }
 
     fun onCurrencyChange(currency: Currency) {
@@ -188,7 +199,12 @@ class AddEditAssetViewModel(
                     currency = state.currency,
                     notes = state.notes.trim(),
                     interestRate = interestRate ?: 0.0,
-                    dateTakenMillis = state.dateTakenMillis
+                    dateTakenMillis = state.dateTakenMillis,
+                    valuationDateMillis = if (state.category == AssetCategory.REAL_ESTATE) {
+                        state.valuationDateMillis.takeIf { it > 0 } ?: System.currentTimeMillis()
+                    } else {
+                        state.valuationDateMillis
+                    }
                 )
             )
             _formState.update { it.copy(isSaved = true) }

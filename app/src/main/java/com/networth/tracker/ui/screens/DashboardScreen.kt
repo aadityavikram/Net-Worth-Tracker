@@ -67,7 +67,7 @@ private enum class DashboardSection {
 fun DashboardScreen(
     viewModel: DashboardViewModel,
     onAddAsset: (AssetAddContext) -> Unit,
-    onEditAsset: (Long) -> Unit,
+    onOpenAsset: (Long) -> Unit,
     onAddBankAccount: (BankAccountAddContext) -> Unit,
     onEditBankAccount: (Long) -> Unit
 ) {
@@ -217,7 +217,7 @@ fun DashboardScreen(
                     assets = assets,
                     bankAccounts = bankAccounts,
                     exchangeRateState = exchangeRateState,
-                    onEditAsset = onEditAsset,
+                    onEditAsset = onOpenAsset,
                     onEditBankAccount = onEditBankAccount,
                     onDeleteAsset = { assetToDelete = it },
                     onDeleteBankAccount = { bankAccountToDelete = it }
@@ -230,7 +230,7 @@ fun DashboardScreen(
                     selectedAssetIds = selectedAssetIds,
                     selectedBankAccountIds = selectedBankAccountIds,
                     onAddAsset = { onAddAsset(AssetAddContext.ASSETS) },
-                    onEditAsset = onEditAsset,
+                    onEditAsset = onOpenAsset,
                     onAddBankAccount = { onAddBankAccount(BankAccountAddContext.ASSETS) },
                     onEditBankAccount = onEditBankAccount,
                     onDeleteAsset = { assetToDelete = it },
@@ -248,7 +248,7 @@ fun DashboardScreen(
                     selectedAssetIds = selectedAssetIds,
                     selectedBankAccountIds = selectedBankAccountIds,
                     onAddAsset = { onAddAsset(AssetAddContext.LIABILITIES) },
-                    onEditAsset = onEditAsset,
+                    onEditAsset = onOpenAsset,
                     onAddBankAccount = { onAddBankAccount(BankAccountAddContext.LIABILITIES) },
                     onEditBankAccount = onEditBankAccount,
                     onDeleteAsset = { assetToDelete = it },

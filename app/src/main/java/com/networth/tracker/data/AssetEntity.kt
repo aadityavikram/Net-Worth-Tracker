@@ -15,5 +15,11 @@ data class AssetEntity(
     val notes: String = "",
     val interestRate: Double = 0.0,
     val dateTakenMillis: Long = 0L,
+    /** When current market/outstanding value was assessed (esp. real estate). */
+    val valuationDateMillis: Long = 0L,
     val updatedAt: Long = System.currentTimeMillis()
-)
+) {
+    /** Categories where each transaction sets value/outstanding as of that date. */
+    fun usesValueCheckpoints(): Boolean =
+        category.isLiability || category == AssetCategory.REAL_ESTATE || category == AssetCategory.GOLD
+}

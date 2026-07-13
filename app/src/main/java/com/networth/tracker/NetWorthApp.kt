@@ -5,6 +5,7 @@ import com.networth.tracker.data.AppDatabase
 import com.networth.tracker.data.AssetRepository
 import com.networth.tracker.data.BackupPreferences
 import com.networth.tracker.data.ExchangeRateRepository
+import com.networth.tracker.data.GoogleDriveBackupStore
 import com.networth.tracker.data.PinPreferences
 import com.networth.tracker.data.PortfolioBackupStore
 
@@ -13,6 +14,7 @@ class NetWorthApp : Application() {
     val backupPreferences by lazy { BackupPreferences(this) }
     val pinPreferences by lazy { PinPreferences(this) }
     val backupStore by lazy { PortfolioBackupStore(this, backupPreferences) }
+    val driveBackupStore by lazy { GoogleDriveBackupStore(backupPreferences, backupStore) }
     val exchangeRateRepository by lazy { ExchangeRateRepository(this) }
     val repository by lazy {
         AssetRepository(
@@ -20,8 +22,10 @@ class NetWorthApp : Application() {
             database.assetDao(),
             database.bankAccountDao(),
             database.netWorthHistoryDao(),
+            database.assetTransactionDao(),
             exchangeRateRepository,
-            backupStore
+            backupStore,
+            driveBackupStore
         )
     }
 }

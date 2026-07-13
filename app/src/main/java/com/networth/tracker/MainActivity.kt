@@ -43,6 +43,8 @@ import com.networth.tracker.data.BankAccountAddContext
 import com.networth.tracker.ui.navigation.Routes
 import com.networth.tracker.ui.screens.AddEditAssetScreen
 import com.networth.tracker.ui.screens.AddEditBankAccountScreen
+import com.networth.tracker.ui.screens.AddEditTransactionScreen
+import com.networth.tracker.ui.screens.AssetTransactionsScreen
 import com.networth.tracker.ui.screens.BackupScreen
 import com.networth.tracker.ui.screens.DashboardScreen
 import com.networth.tracker.ui.screens.PinLockMode
@@ -52,6 +54,10 @@ import com.networth.tracker.viewmodel.AddEditAssetViewModel
 import com.networth.tracker.viewmodel.AddEditAssetViewModelFactory
 import com.networth.tracker.viewmodel.AddEditBankAccountViewModel
 import com.networth.tracker.viewmodel.AddEditBankAccountViewModelFactory
+import com.networth.tracker.viewmodel.AddEditTransactionViewModel
+import com.networth.tracker.viewmodel.AddEditTransactionViewModelFactory
+import com.networth.tracker.viewmodel.AssetTransactionsViewModel
+import com.networth.tracker.viewmodel.AssetTransactionsViewModelFactory
 import com.networth.tracker.viewmodel.BackupViewModel
 import com.networth.tracker.viewmodel.BackupViewModelFactory
 import com.networth.tracker.viewmodel.DashboardViewModel
@@ -143,13 +149,71 @@ class MainActivity : ComponentActivity() {
                                                     Routes.addEdit(context = context.name)
                                                 )
                                             },
-                                            onEditAsset = { id -> navController.navigate(Routes.addEdit(id)) },
+                                            onOpenAsset = { id ->
+                                                navController.navigate(Routes.assetTransactions(id))
+                                            },
                                             onAddBankAccount = { context ->
                                                 navController.navigate(
                                                     Routes.addEditBank(context = context.name)
                                                 )
                                             },
                                             onEditBankAccount = { id -> navController.navigate(Routes.addEditBank(id)) }
+                                        )
+                                    }
+
+                                    composable(
+                                        route = Routes.ASSET_TRANSACTIONS,
+                                        arguments = listOf(
+                                            navArgument("assetId") { type = NavType.LongType }
+                                        )
+                                    ) { backStackEntry ->
+                                        val assetId = backStackEntry.arguments?.getLong("assetId") ?: return@composable
+                                        val viewModel: AssetTransactionsViewModel = viewModel(
+                                            factory = AssetTransactionsViewModelFactory(
+                                                repository,
+                                                exchangeRateRepository,
+                                                assetId
+                                            )
+                                        )
+                                        AssetTransactionsScreen(
+                                            viewModel = viewModel,
+                                            onAddTransaction = {
+                                                navController.navigate(Routes.addEditTransaction(assetId))
+                                            },
+                                            onEditTransaction = { txId ->
+                                                navController.navigate(Routes.addEditTransaction(assetId, txId))
+                                            },
+                                            onEditAsset = {
+                                                navController.navigate(Routes.addEdit(assetId))
+                                            },
+                                            onNavigateBack = { navController.popBackStack() }
+                                        )
+                                    }
+
+                                    composable(
+                                        route = Routes.ADD_EDIT_TRANSACTION,
+                                        arguments = listOf(
+                                            navArgument("assetId") { type = NavType.LongType },
+                                            navArgument("transactionId") {
+                                                type = NavType.LongType
+                                                defaultValue = -1L
+                                            }
+                                        )
+                                    ) { backStackEntry ->
+                                        val assetId = backStackEntry.arguments?.getLong("assetId") ?: return@composable
+                                        val transactionId = backStackEntry.arguments
+                                            ?.getLong("transactionId")
+                                            ?.takeIf { it > 0 }
+                                        val viewModel: AddEditTransactionViewModel = viewModel(
+                                            factory = AddEditTransactionViewModelFactory(
+                                                repository,
+                                                assetId,
+                                                transactionId
+                                            )
+                                        )
+                                        AddEditTransactionScreen(
+                                            viewModel = viewModel,
+                                            onNavigateBack = { navController.popBackStack() }
                                         )
                                     }
 

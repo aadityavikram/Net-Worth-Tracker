@@ -24,7 +24,6 @@ class DashboardViewModel(
     init {
         viewModelScope.launch {
             exchangeRateRepository.refresh(force = false)
-            repository.ensureHistorySnapshot()
         }
     }
 

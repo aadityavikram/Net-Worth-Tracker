@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +74,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -86,6 +88,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -102,6 +105,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.math.roundToLong
 import com.networth.tracker.data.AssetAddContext
 import com.networth.tracker.data.AssetCategory
 import com.networth.tracker.data.AssetEntity
@@ -297,7 +301,7 @@ internal fun AssetsLiabilitiesChart(history: List<NetWorthHistoryEntity>) {
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                "Tracked over time as your portfolio changes",
+                "Pinch or slide to zoom · Double-tap to reset",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
@@ -315,7 +319,7 @@ internal fun AssetsLiabilitiesChart(history: List<NetWorthHistoryEntity>) {
 
             if (history.isEmpty()) {
                 Text(
-                    "Add or update assets and liabilities to start building this chart.",
+                    "Add dated assets and liabilities to build this chart.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     modifier = Modifier
@@ -374,28 +378,41 @@ private fun AssetsLiabilitiesLineChart(
             else -> history
         }
     }
-    val maxAmount = remember(points) {
+    val fullMinTimeMs = points.first().recordedAt
+    val fullTimeSpanMs = (points.last().recordedAt - fullMinTimeMs).coerceAtLeast(1L)
+
+    var scale by remember(points) { mutableFloatStateOf(1f) }
+    var panFraction by remember(points) { mutableFloatStateOf(0f) }
+    var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
+
+    val clampedScale = scale.coerceIn(1f, 24f)
+    val visibleSpanMs = (fullTimeSpanMs / clampedScale).toLong().coerceAtLeast(1L)
+    val maxWindowStartOffset = (fullTimeSpanMs - visibleSpanMs).coerceAtLeast(0L)
+    val windowStartMs = fullMinTimeMs + (maxWindowStartOffset * panFraction.coerceIn(0f, 1f)).roundToLong()
+    val windowEndMs = windowStartMs + visibleSpanMs
+
+    val visibleMaxAmount = remember(points, windowStartMs, windowEndMs) {
+        val visible = points.filter { it.recordedAt in windowStartMs..windowEndMs }
+        val source = visible.ifEmpty { points }
         maxOf(
-            points.maxOf { it.totalAssetsInInr },
-            points.maxOf { it.totalLiabilitiesInInr },
+            source.maxOf { it.totalAssetsInInr },
+            source.maxOf { it.totalLiabilitiesInInr },
             1.0
         )
     }
-    // Keep time math in Long space first — epoch millis lose precision as Float.
-    val minTimeMs = points.first().recordedAt
-    val timeSpanMs = (points.last().recordedAt - minTimeMs).coerceAtLeast(1L)
+
     val gridColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
     val axisLabelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
     val markerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
-    val dateFormatter = remember {
-        SimpleDateFormat("dd MMM", Locale.getDefault())
-    }
-    val selectedDateFormatter = remember {
-        SimpleDateFormat("dd MMM yyyy, h:mm a", Locale.getDefault())
-    }
-    var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
+    val dateFormatter = remember { SimpleDateFormat("dd MMM", Locale.getDefault()) }
+    val selectedDateFormatter = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
     val selectedPoint = selectedIndex?.let { points.getOrNull(it) }?.takeIf { it.id >= 0 }
     val density = LocalDensity.current
+
+    fun resetZoom() {
+        scale = 1f
+        panFraction = 0f
+    }
 
     Column(modifier = modifier) {
         if (selectedPoint != null) {
@@ -430,7 +447,7 @@ private fun AssetsLiabilitiesLineChart(
             ) {
                 listOf(1f, 0.5f, 0f).forEach { fraction ->
                     Text(
-                        FormatUtils.formatCompactInr(maxAmount * fraction),
+                        FormatUtils.formatCompactInr(visibleMaxAmount * fraction),
                         style = MaterialTheme.typography.labelSmall,
                         color = axisLabelColor,
                         maxLines = 1,
@@ -443,105 +460,173 @@ private fun AssetsLiabilitiesLineChart(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .pointerInput(points, minTimeMs, timeSpanMs, maxAmount) {
-                        val hitSlop = with(density) { 48.dp.toPx() }
-                        fun nearestIndex(touchX: Float, touchY: Float, width: Float, height: Float): Int? {
-                            var bestIndex: Int? = null
-                            var bestScore = Float.MAX_VALUE
-                            points.forEachIndexed { index, point ->
-                                if (point.id < 0) return@forEachIndexed
-                                val x = ((point.recordedAt - minTimeMs).toFloat() / timeSpanMs.toFloat()) * width
-                                val assetY = height -
-                                    ((point.totalAssetsInInr / maxAmount).toFloat().coerceIn(0f, 1f) * height)
-                                val liabilityY = height -
-                                    ((point.totalLiabilitiesInInr / maxAmount).toFloat().coerceIn(0f, 1f) * height)
-                                val score = minOf(
-                                    hypot(touchX - x, touchY - assetY),
-                                    hypot(touchX - x, touchY - liabilityY),
-                                    abs(touchX - x)
-                                )
-                                if (score < bestScore) {
-                                    bestScore = score
-                                    bestIndex = index
-                                }
-                            }
-                            return bestIndex?.takeIf { bestScore <= hitSlop }
-                        }
+                    .pointerInput(points, fullMinTimeMs, fullTimeSpanMs) {
+                        detectTapGestures(
+                            onDoubleTap = {
+                                resetZoom()
+                                selectedIndex = null
+                            },
+                            onTap = { offset ->
+                                val hitSlop = with(density) { 48.dp.toPx() }
+                                val width = size.width.toFloat()
+                                val height = size.height.toFloat()
+                                val localScale = scale.coerceIn(1f, 24f)
+                                val localSpan = (fullTimeSpanMs / localScale).toLong().coerceAtLeast(1L)
+                                val localMaxStart = (fullTimeSpanMs - localSpan).coerceAtLeast(0L)
+                                val localStart = fullMinTimeMs +
+                                    (localMaxStart * panFraction.coerceIn(0f, 1f)).roundToLong()
 
-                        detectTapGestures { offset ->
-                            selectedIndex = nearestIndex(
-                                offset.x,
-                                offset.y,
-                                size.width.toFloat(),
-                                size.height.toFloat()
+                                fun xFor(time: Long): Float =
+                                    ((time - localStart).toFloat() / localSpan.toFloat()) * width
+
+                                val visible = points.filter {
+                                    it.recordedAt in localStart..(localStart + localSpan)
+                                }
+                                val localMax = maxOf(
+                                    visible.maxOfOrNull { it.totalAssetsInInr } ?: 0.0,
+                                    visible.maxOfOrNull { it.totalLiabilitiesInInr } ?: 0.0,
+                                    1.0
+                                )
+
+                                var bestIndex: Int? = null
+                                var bestScore = Float.MAX_VALUE
+                                points.forEachIndexed { index, point ->
+                                    if (point.id < 0) return@forEachIndexed
+                                    if (point.recordedAt < localStart ||
+                                        point.recordedAt > localStart + localSpan
+                                    ) {
+                                        return@forEachIndexed
+                                    }
+                                    val x = xFor(point.recordedAt)
+                                    val assetY = height -
+                                        ((point.totalAssetsInInr / localMax).toFloat()
+                                            .coerceIn(0f, 1f) * height)
+                                    val liabilityY = height -
+                                        ((point.totalLiabilitiesInInr / localMax).toFloat()
+                                            .coerceIn(0f, 1f) * height)
+                                    val score = minOf(
+                                        hypot(offset.x - x, offset.y - assetY),
+                                        hypot(offset.x - x, offset.y - liabilityY),
+                                        abs(offset.x - x)
+                                    )
+                                    if (score < bestScore) {
+                                        bestScore = score
+                                        bestIndex = index
+                                    }
+                                }
+                                selectedIndex = bestIndex?.takeIf { bestScore <= hitSlop }
+                            }
+                        )
+                    }
+                    .pointerInput(points, fullMinTimeMs, fullTimeSpanMs) {
+                        detectTransformGestures { centroid, pan, zoom, _ ->
+                            val oldScale = scale.coerceIn(1f, 24f).toDouble()
+                            val newScale = (oldScale * zoom).coerceIn(1.0, 24.0)
+                            val width = size.width.toFloat().coerceAtLeast(1f).toDouble()
+                            val totalSpan = fullTimeSpanMs.toDouble()
+
+                            val oldSpan = totalSpan / oldScale
+                            val oldMaxStart = (totalSpan - oldSpan).coerceAtLeast(0.0)
+                            val oldStart = fullMinTimeMs + oldMaxStart * panFraction.coerceIn(0f, 1f)
+                            val focusRatio = (centroid.x / width.toFloat()).toDouble().coerceIn(0.0, 1.0)
+                            val focusTime = oldStart + focusRatio * oldSpan
+
+                            val newSpan = totalSpan / newScale
+                            val newMaxStart = (totalSpan - newSpan).coerceAtLeast(0.0)
+                            var newStart = focusTime - focusRatio * newSpan
+                            // Apply horizontal pan (slide) in visible-time units.
+                            newStart -= (pan.x / width) * newSpan
+                            newStart = newStart.coerceIn(
+                                fullMinTimeMs.toDouble(),
+                                fullMinTimeMs + newMaxStart
                             )
+
+                            scale = newScale.toFloat()
+                            panFraction = if (newMaxStart <= 0.0) {
+                                0f
+                            } else {
+                                ((newStart - fullMinTimeMs) / newMaxStart).toFloat().coerceIn(0f, 1f)
+                            }
                         }
                     }
             ) {
                 val chartWidth = size.width
                 val chartHeight = size.height
-
-                listOf(0f, 0.5f, 1f).forEach { fraction ->
-                    val y = chartHeight * fraction
-                    drawLine(
-                        color = gridColor,
-                        start = Offset(0f, y),
-                        end = Offset(chartWidth, y),
-                        strokeWidth = 1.dp.toPx()
-                    )
-                }
+                val span = visibleSpanMs.toFloat().coerceAtLeast(1f)
 
                 fun xFor(time: Long): Float =
-                    ((time - minTimeMs).toFloat() / timeSpanMs.toFloat()) * chartWidth
+                    ((time - windowStartMs).toFloat() / span) * chartWidth
 
                 fun yFor(amount: Double): Float =
-                    chartHeight - ((amount / maxAmount).toFloat().coerceIn(0f, 1f) * chartHeight)
+                    chartHeight -
+                        ((amount / visibleMaxAmount).toFloat().coerceIn(0f, 1f) * chartHeight)
 
-                fun drawSeries(values: List<Pair<Long, Double>>, color: Color) {
-                    if (values.isEmpty()) return
-                    val path = Path()
-                    values.forEachIndexed { index, (time, amount) ->
-                        val x = xFor(time)
-                        val y = yFor(amount)
-                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                    }
-                    drawPath(
-                        path = path,
-                        color = color,
-                        style = Stroke(
-                            width = 3.dp.toPx(),
-                            cap = StrokeCap.Round,
-                            join = StrokeJoin.Round
+                clipRect {
+                    listOf(0f, 0.5f, 1f).forEach { fraction ->
+                        val y = chartHeight * fraction
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, y),
+                            end = Offset(chartWidth, y),
+                            strokeWidth = 1.dp.toPx()
                         )
-                    )
-                    values.forEachIndexed { index, (time, amount) ->
-                        val isSelected = index == selectedIndex && points[index].id >= 0
-                        drawCircle(
+                    }
+
+                    fun drawSeries(values: List<Pair<Long, Double>>, color: Color) {
+                        if (values.isEmpty()) return
+                        val path = Path()
+                        var started = false
+                        values.forEach { (time, amount) ->
+                            val x = xFor(time)
+                            val y = yFor(amount)
+                            if (!started) {
+                                path.moveTo(x, y)
+                                started = true
+                            } else {
+                                path.lineTo(x, y)
+                            }
+                        }
+                        drawPath(
+                            path = path,
                             color = color,
-                            radius = if (isSelected) 7.dp.toPx() else 4.dp.toPx(),
-                            center = Offset(xFor(time), yFor(amount))
+                            style = Stroke(
+                                width = 3.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round
+                            )
                         )
+                        values.forEachIndexed { index, (time, amount) ->
+                            if (time < windowStartMs || time > windowEndMs) return@forEachIndexed
+                            val isSelected = index == selectedIndex && points[index].id >= 0
+                            drawCircle(
+                                color = color,
+                                radius = if (isSelected) 7.dp.toPx() else 4.dp.toPx(),
+                                center = Offset(xFor(time), yFor(amount))
+                            )
+                        }
                     }
-                }
 
-                selectedPoint?.let { point ->
-                    val x = xFor(point.recordedAt)
-                    drawLine(
-                        color = markerColor,
-                        start = Offset(x, 0f),
-                        end = Offset(x, chartHeight),
-                        strokeWidth = 1.5.dp.toPx()
+                    selectedPoint?.let { point ->
+                        if (point.recordedAt in windowStartMs..windowEndMs) {
+                            val x = xFor(point.recordedAt)
+                            drawLine(
+                                color = markerColor,
+                                start = Offset(x, 0f),
+                                end = Offset(x, chartHeight),
+                                strokeWidth = 1.5.dp.toPx()
+                            )
+                        }
+                    }
+
+                    drawSeries(
+                        points.map { it.recordedAt to it.totalAssetsInInr },
+                        AssetPositiveColor
+                    )
+                    drawSeries(
+                        points.map { it.recordedAt to it.totalLiabilitiesInInr },
+                        LiabilityColor
                     )
                 }
-
-                drawSeries(
-                    points.map { it.recordedAt to it.totalAssetsInInr },
-                    AssetPositiveColor
-                )
-                drawSeries(
-                    points.map { it.recordedAt to it.totalLiabilitiesInInr },
-                    LiabilityColor
-                )
             }
         }
 
@@ -553,13 +638,13 @@ private fun AssetsLiabilitiesLineChart(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                dateFormatter.format(Date(points.first().recordedAt)),
+                dateFormatter.format(Date(windowStartMs)),
                 style = MaterialTheme.typography.labelSmall,
                 color = axisLabelColor
             )
-            if (points.first().recordedAt != points.last().recordedAt) {
+            if (windowStartMs != windowEndMs) {
                 Text(
-                    dateFormatter.format(Date(points.last().recordedAt)),
+                    dateFormatter.format(Date(windowEndMs)),
                     style = MaterialTheme.typography.labelSmall,
                     color = axisLabelColor
                 )

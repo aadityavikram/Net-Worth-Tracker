@@ -175,10 +175,23 @@ fun AddEditAssetScreen(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
+                }
 
+                DateTakenField(
+                    dateTakenMillis = formState.dateTakenMillis,
+                    label = when {
+                        formState.category.isLoan -> "Date Taken"
+                        formState.category == AssetCategory.REAL_ESTATE -> "Purchase / Investment Date"
+                        else -> "Date"
+                    },
+                    onDateSelected = viewModel::onDateTakenChange
+                )
+
+                if (formState.category == AssetCategory.REAL_ESTATE) {
                     DateTakenField(
-                        dateTakenMillis = formState.dateTakenMillis,
-                        onDateSelected = viewModel::onDateTakenChange
+                        dateTakenMillis = formState.valuationDateMillis,
+                        label = "Current Value Date",
+                        onDateSelected = viewModel::onValuationDateChange
                     )
                 }
 
@@ -219,6 +232,7 @@ fun AddEditAssetScreen(
 @Composable
 private fun DateTakenField(
     dateTakenMillis: Long,
+    label: String = "Date",
     onDateSelected: (Long) -> Unit
 ) {
     var showPicker by remember { mutableStateOf(false) }
@@ -230,7 +244,7 @@ private fun DateTakenField(
             value = displayDate,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Date Taken") },
+            label = { Text(label) },
             trailingIcon = {
                 Icon(
                     Icons.Default.CalendarToday,
