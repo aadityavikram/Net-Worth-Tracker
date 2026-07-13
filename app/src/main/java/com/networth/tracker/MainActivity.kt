@@ -1,9 +1,11 @@
 package com.networth.tracker
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -68,6 +70,11 @@ class MainActivity : ComponentActivity() {
     private val storagePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
+
+    override fun onPause() {
+        hideSoftKeyboard()
+        super.onPause()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -329,5 +336,12 @@ class MainActivity : ComponentActivity() {
                 storagePermissionLauncher.launch(readPermission)
             }
         }
+    }
+
+    private fun hideSoftKeyboard() {
+        val view = currentFocus ?: window.decorView
+        view.clearFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(view.windowToken, 0)
     }
 }
