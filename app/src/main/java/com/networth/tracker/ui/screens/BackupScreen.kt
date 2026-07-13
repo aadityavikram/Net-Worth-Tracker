@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
@@ -38,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,22 +47,27 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.networth.tracker.data.BackupInfo
+import com.networth.tracker.data.PinPreferences
 import com.networth.tracker.data.PortfolioBackupStore
 import com.networth.tracker.viewmodel.BackupViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BackupScreen(
     viewModel: BackupViewModel,
-    backupStore: PortfolioBackupStore
+    backupStore: PortfolioBackupStore,
+    pinPreferences: PinPreferences
 ) {
     val backupInfo by viewModel.backupInfo.collectAsStateWithLifecycle()
     val backupMessage by viewModel.backupMessage.collectAsStateWithLifecycle()
     val needsFolderAccess by viewModel.needsFolderAccess.collectAsStateWithLifecycle()
     val isBackupBusy by viewModel.isBackupBusy.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var showFolderDialog by remember { mutableStateOf(false) }
     var showRestoreConfirm by remember { mutableStateOf(false) }
+    var showChangePin by remember { mutableStateOf(false) }
 
     val backupFolderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -130,6 +137,22 @@ fun BackupScreen(
         )
     }
 
+    if (showChangePin) {
+        PinLockScreen(
+            pinPreferences = pinPreferences,
+            mode = PinLockMode.Change,
+            onUnlocked = { },
+            onPinChanged = {
+                showChangePin = false
+                scope.launch {
+                    snackbarHostState.showSnackbar("PIN updated")
+                }
+            },
+            onCancel = { showChangePin = false }
+        )
+        return
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -167,6 +190,53 @@ fun BackupScreen(
                         backupFolderLauncher.launch(backupStore.suggestedBackupTreeInitialUri())
                     }
                 )
+            }
+
+            item {
+                AppLockCard(onChangePin = { showChangePin = true })
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppLockCard(onChangePin: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        "App Lock",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        "A 4-digit PIN is required when opening the app.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    )
+                }
+            }
+
+            OutlinedButton(onClick = onChangePin, modifier = Modifier.fillMaxWidth()) {
+                Text("Change PIN")
             }
         }
     }
