@@ -19,6 +19,7 @@ class NetWorthApp : Application() {
             database,
             database.assetDao(),
             database.bankAccountDao(),
+            database.netWorthHistoryDao(),
             exchangeRateRepository,
             backupStore
         )

@@ -37,3 +37,18 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         db.execSQL("ALTER TABLE bank_accounts ADD COLUMN creditLimit REAL NOT NULL DEFAULT 0")
     }
 }
+
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS net_worth_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                recordedAt INTEGER NOT NULL,
+                totalAssetsInInr REAL NOT NULL,
+                totalLiabilitiesInInr REAL NOT NULL
+            )
+            """.trimIndent()
+        )
+    }
+}

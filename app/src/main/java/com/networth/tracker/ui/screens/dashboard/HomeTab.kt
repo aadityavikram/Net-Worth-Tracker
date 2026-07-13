@@ -97,6 +97,7 @@ import com.networth.tracker.data.BankAccountType
 import com.networth.tracker.data.BankAccountTypeSummary
 import com.networth.tracker.data.CategorySummary
 import com.networth.tracker.data.ExchangeRateState
+import com.networth.tracker.data.NetWorthHistoryEntity
 import com.networth.tracker.data.NetWorthSummary
 import com.networth.tracker.data.AssetRepository
 import com.networth.tracker.data.EmiResult
@@ -119,6 +120,7 @@ import com.networth.tracker.viewmodel.DashboardViewModel
 @Composable
 internal fun HomeTabContent(
     summary: NetWorthSummary,
+    history: List<NetWorthHistoryEntity>,
     exchangeRateState: ExchangeRateState,
     onRefreshExchangeRate: () -> Unit
 ) {
@@ -138,5 +140,6 @@ internal fun HomeTabContent(
         if (summary.portfolioReturn.hasReturnData) {
             item { PortfolioReturnCard(summary.portfolioReturn) }
         }
+        item { AssetsLiabilitiesChart(history) }
     }
 }

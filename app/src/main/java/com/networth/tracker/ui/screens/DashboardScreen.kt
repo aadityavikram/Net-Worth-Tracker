@@ -74,6 +74,7 @@ fun DashboardScreen(
     val assets by viewModel.assets.collectAsStateWithLifecycle()
     val bankAccounts by viewModel.bankAccounts.collectAsStateWithLifecycle()
     val summary by viewModel.summary.collectAsStateWithLifecycle()
+    val netWorthHistory by viewModel.netWorthHistory.collectAsStateWithLifecycle()
     val exchangeRateState by viewModel.exchangeRateState.collectAsStateWithLifecycle()
     var assetToDelete by remember { mutableStateOf<AssetEntity?>(null) }
     var bankAccountToDelete by remember { mutableStateOf<BankAccountEntity?>(null) }
@@ -207,6 +208,7 @@ fun DashboardScreen(
             when (selectedSection) {
                 DashboardSection.HOME -> HomeTabContent(
                     summary = summary,
+                    history = netWorthHistory,
                     exchangeRateState = exchangeRateState,
                     onRefreshExchangeRate = viewModel::refreshExchangeRate
                 )

@@ -132,6 +132,16 @@ class PortfolioBackupStore(
                     })
                 }
             })
+            put("history", JSONArray().apply {
+                snapshot.history.forEach { entry ->
+                    put(JSONObject().apply {
+                        put("id", entry.id)
+                        put("recordedAt", entry.recordedAt)
+                        put("totalAssetsInInr", entry.totalAssetsInInr)
+                        put("totalLiabilitiesInInr", entry.totalLiabilitiesInInr)
+                    })
+                }
+            })
         }
         return root.toString(2)
     }
@@ -185,7 +195,26 @@ class PortfolioBackupStore(
                 emptyList()
             }
 
-            PortfolioSnapshot(assets = assets, bankAccounts = bankAccounts)
+            val history = if (root.has("history")) {
+                val historyArray = root.getJSONArray("history")
+                buildList {
+                    for (index in 0 until historyArray.length()) {
+                        val item = historyArray.getJSONObject(index)
+                        add(
+                            NetWorthHistoryEntity(
+                                id = item.optLong("id", 0L),
+                                recordedAt = item.getLong("recordedAt"),
+                                totalAssetsInInr = item.getDouble("totalAssetsInInr"),
+                                totalLiabilitiesInInr = item.getDouble("totalLiabilitiesInInr")
+                            )
+                        )
+                    }
+                }
+            } else {
+                emptyList()
+            }
+
+            PortfolioSnapshot(assets = assets, bankAccounts = bankAccounts, history = history)
         } catch (_: Exception) {
             null
         }
@@ -349,6 +378,6 @@ class PortfolioBackupStore(
         const val BACKUP_FOLDER = "NetWorthTracker"
         private const val BACKUP_FILE_PREFIX = "net_worth_backup_"
         private const val BACKUP_FILE_SUFFIX = ".json"
-        private const val BACKUP_VERSION = 3
+        private const val BACKUP_VERSION = 4
     }
 }

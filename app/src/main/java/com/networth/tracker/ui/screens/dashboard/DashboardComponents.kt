@@ -1,11 +1,13 @@
 package com.networth.tracker.ui.screens.dashboard
 
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -77,17 +80,28 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.filled.Work
+import java.text.SimpleDateFormat
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.hypot
 import com.networth.tracker.data.AssetAddContext
 import com.networth.tracker.data.AssetCategory
 import com.networth.tracker.data.AssetEntity
@@ -97,6 +111,7 @@ import com.networth.tracker.data.BankAccountType
 import com.networth.tracker.data.BankAccountTypeSummary
 import com.networth.tracker.data.CategorySummary
 import com.networth.tracker.data.ExchangeRateState
+import com.networth.tracker.data.NetWorthHistoryEntity
 import com.networth.tracker.data.NetWorthSummary
 import com.networth.tracker.data.AssetRepository
 import com.networth.tracker.data.EmiResult
@@ -264,6 +279,292 @@ internal fun AssetsLiabilitiesRow(summary: NetWorthSummary) {
             amount = summary.totalLiabilitiesInInr,
             color = LiabilityColor
         )
+    }
+}
+
+@Composable
+internal fun AssetsLiabilitiesChart(history: List<NetWorthHistoryEntity>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Assets vs Liabilities",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Tracked over time as your portfolio changes",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ChartLegendDot(color = AssetPositiveColor, label = "Assets")
+                ChartLegendDot(color = LiabilityColor, label = "Liabilities")
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (history.isEmpty()) {
+                Text(
+                    "Add or update assets and liabilities to start building this chart.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    textAlign = TextAlign.Center
+                )
+            } else {
+                AssetsLiabilitiesLineChart(
+                    history = history,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(220.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChartLegendDot(color: Color, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(RoundedCornerShape(50))
+                .background(color)
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun AssetsLiabilitiesLineChart(
+    history: List<NetWorthHistoryEntity>,
+    modifier: Modifier = Modifier
+) {
+    val points = remember(history) {
+        when {
+            history.isEmpty() -> emptyList()
+            history.size == 1 -> {
+                val single = history.first()
+                listOf(
+                    single.copy(id = -1, recordedAt = single.recordedAt - 86_400_000L),
+                    single
+                )
+            }
+            else -> history
+        }
+    }
+    val maxAmount = remember(points) {
+        maxOf(
+            points.maxOf { it.totalAssetsInInr },
+            points.maxOf { it.totalLiabilitiesInInr },
+            1.0
+        )
+    }
+    // Keep time math in Long space first — epoch millis lose precision as Float.
+    val minTimeMs = points.first().recordedAt
+    val timeSpanMs = (points.last().recordedAt - minTimeMs).coerceAtLeast(1L)
+    val gridColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    val axisLabelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+    val markerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+    val dateFormatter = remember {
+        SimpleDateFormat("dd MMM", Locale.getDefault())
+    }
+    val selectedDateFormatter = remember {
+        SimpleDateFormat("dd MMM yyyy, h:mm a", Locale.getDefault())
+    }
+    var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
+    val selectedPoint = selectedIndex?.let { points.getOrNull(it) }?.takeIf { it.id >= 0 }
+    val density = LocalDensity.current
+
+    Column(modifier = modifier) {
+        if (selectedPoint != null) {
+            Text(
+                selectedDateFormatter.format(Date(selectedPoint.recordedAt)),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                "Assets ${FormatUtils.formatCompactInr(selectedPoint.totalAssetsInInr)}" +
+                    "  ·  Liabilities ${FormatUtils.formatCompactInr(selectedPoint.totalLiabilitiesInInr)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = axisLabelColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                textAlign = TextAlign.Center
+            )
+        }
+
+        Row(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .width(52.dp)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                listOf(1f, 0.5f, 0f).forEach { fraction ->
+                    Text(
+                        FormatUtils.formatCompactInr(maxAmount * fraction),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = axisLabelColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Canvas(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pointerInput(points, minTimeMs, timeSpanMs, maxAmount) {
+                        val hitSlop = with(density) { 48.dp.toPx() }
+                        fun nearestIndex(touchX: Float, touchY: Float, width: Float, height: Float): Int? {
+                            var bestIndex: Int? = null
+                            var bestScore = Float.MAX_VALUE
+                            points.forEachIndexed { index, point ->
+                                if (point.id < 0) return@forEachIndexed
+                                val x = ((point.recordedAt - minTimeMs).toFloat() / timeSpanMs.toFloat()) * width
+                                val assetY = height -
+                                    ((point.totalAssetsInInr / maxAmount).toFloat().coerceIn(0f, 1f) * height)
+                                val liabilityY = height -
+                                    ((point.totalLiabilitiesInInr / maxAmount).toFloat().coerceIn(0f, 1f) * height)
+                                val score = minOf(
+                                    hypot(touchX - x, touchY - assetY),
+                                    hypot(touchX - x, touchY - liabilityY),
+                                    abs(touchX - x)
+                                )
+                                if (score < bestScore) {
+                                    bestScore = score
+                                    bestIndex = index
+                                }
+                            }
+                            return bestIndex?.takeIf { bestScore <= hitSlop }
+                        }
+
+                        detectTapGestures { offset ->
+                            selectedIndex = nearestIndex(
+                                offset.x,
+                                offset.y,
+                                size.width.toFloat(),
+                                size.height.toFloat()
+                            )
+                        }
+                    }
+            ) {
+                val chartWidth = size.width
+                val chartHeight = size.height
+
+                listOf(0f, 0.5f, 1f).forEach { fraction ->
+                    val y = chartHeight * fraction
+                    drawLine(
+                        color = gridColor,
+                        start = Offset(0f, y),
+                        end = Offset(chartWidth, y),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                }
+
+                fun xFor(time: Long): Float =
+                    ((time - minTimeMs).toFloat() / timeSpanMs.toFloat()) * chartWidth
+
+                fun yFor(amount: Double): Float =
+                    chartHeight - ((amount / maxAmount).toFloat().coerceIn(0f, 1f) * chartHeight)
+
+                fun drawSeries(values: List<Pair<Long, Double>>, color: Color) {
+                    if (values.isEmpty()) return
+                    val path = Path()
+                    values.forEachIndexed { index, (time, amount) ->
+                        val x = xFor(time)
+                        val y = yFor(amount)
+                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    drawPath(
+                        path = path,
+                        color = color,
+                        style = Stroke(
+                            width = 3.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round
+                        )
+                    )
+                    values.forEachIndexed { index, (time, amount) ->
+                        val isSelected = index == selectedIndex && points[index].id >= 0
+                        drawCircle(
+                            color = color,
+                            radius = if (isSelected) 7.dp.toPx() else 4.dp.toPx(),
+                            center = Offset(xFor(time), yFor(amount))
+                        )
+                    }
+                }
+
+                selectedPoint?.let { point ->
+                    val x = xFor(point.recordedAt)
+                    drawLine(
+                        color = markerColor,
+                        start = Offset(x, 0f),
+                        end = Offset(x, chartHeight),
+                        strokeWidth = 1.5.dp.toPx()
+                    )
+                }
+
+                drawSeries(
+                    points.map { it.recordedAt to it.totalAssetsInInr },
+                    AssetPositiveColor
+                )
+                drawSeries(
+                    points.map { it.recordedAt to it.totalLiabilitiesInInr },
+                    LiabilityColor
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 60.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                dateFormatter.format(Date(points.first().recordedAt)),
+                style = MaterialTheme.typography.labelSmall,
+                color = axisLabelColor
+            )
+            if (points.first().recordedAt != points.last().recordedAt) {
+                Text(
+                    dateFormatter.format(Date(points.last().recordedAt)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = axisLabelColor
+                )
+            }
+        }
     }
 }
 
