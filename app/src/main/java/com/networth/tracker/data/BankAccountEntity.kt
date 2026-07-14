@@ -15,6 +15,7 @@ data class BankAccountEntity(
     val currency: Currency = Currency.INR,
     val notes: String = "",
     val creditLimit: Double = 0.0,
+    val asOfDateMillis: Long = 0L,
     val updatedAt: Long = System.currentTimeMillis()
 ) {
     fun creditUtilisationPercent(): Double? {

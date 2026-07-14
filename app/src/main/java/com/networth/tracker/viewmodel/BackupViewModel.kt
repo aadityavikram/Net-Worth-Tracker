@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.networth.tracker.data.AssetRepository
 import com.networth.tracker.data.BackupActionResult
 import com.networth.tracker.data.BackupInfo
+import com.networth.tracker.data.DriveAccountInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +20,14 @@ class BackupViewModel(
     private val _backupInfo = MutableStateFlow(BackupInfo())
     val backupInfo: StateFlow<BackupInfo> = _backupInfo.asStateFlow()
 
+    private val _driveBackupInfo = MutableStateFlow(
+        BackupInfo(folderPath = "Google Drive / My Drive / NetWorthTracker")
+    )
+    val driveBackupInfo: StateFlow<BackupInfo> = _driveBackupInfo.asStateFlow()
+
+    private val _driveAccount = MutableStateFlow(DriveAccountInfo())
+    val driveAccount: StateFlow<DriveAccountInfo> = _driveAccount.asStateFlow()
+
     private val _backupMessage = MutableStateFlow<String?>(null)
     val backupMessage: StateFlow<String?> = _backupMessage.asStateFlow()
 
@@ -28,9 +37,13 @@ class BackupViewModel(
     private val _isBackupBusy = MutableStateFlow(false)
     val isBackupBusy: StateFlow<Boolean> = _isBackupBusy.asStateFlow()
 
+    private val _isDriveBusy = MutableStateFlow(false)
+    val isDriveBusy: StateFlow<Boolean> = _isDriveBusy.asStateFlow()
+
     init {
         viewModelScope.launch {
             refreshBackupInfo()
+            refreshDriveAccount()
             _needsFolderAccess.value = repository.needsBackupFolderAccess()
         }
     }
@@ -42,22 +55,39 @@ class BackupViewModel(
         }
     }
 
+    fun refreshDriveAccount() {
+        _driveAccount.value = repository.getDriveAccountInfo()
+    }
+
+    fun onDriveConnected(email: String?, accessToken: String?) {
+        repository.setDriveAccountEmail(email)
+        refreshDriveAccount()
+        if (!accessToken.isNullOrBlank()) {
+            refreshDriveBackupInfo(accessToken)
+        }
+    }
+
+    fun disconnectDrive() {
+        repository.disconnectDriveAccount()
+        _driveBackupInfo.value = BackupInfo(folderPath = "Google Drive / My Drive / NetWorthTracker")
+        refreshDriveAccount()
+        _backupMessage.value = "Disconnected from Google Drive"
+    }
+
+    fun refreshDriveBackupInfo(accessToken: String) {
+        viewModelScope.launch {
+            try {
+                _driveBackupInfo.value = repository.getDriveBackupInfo(accessToken)
+            } catch (e: Exception) {
+                _backupMessage.value = e.message ?: "Could not load Google Drive backups"
+            }
+        }
+    }
+
     fun createBackup() {
         viewModelScope.launch {
             _isBackupBusy.value = true
-            when (val result = repository.createBackup()) {
-                is BackupActionResult.Success -> {
-                    _backupMessage.value = result.message
-                    refreshBackupInfo()
-                }
-                is BackupActionResult.NeedsFolderAccess -> {
-                    _needsFolderAccess.value = true
-                    _backupMessage.value = result.message
-                }
-                is BackupActionResult.Error -> {
-                    _backupMessage.value = result.message
-                }
-            }
+            handleLocalResult(repository.createBackup())
             _isBackupBusy.value = false
         }
     }
@@ -65,20 +95,41 @@ class BackupViewModel(
     fun restoreLatestBackup() {
         viewModelScope.launch {
             _isBackupBusy.value = true
-            when (val result = repository.restoreLatestBackup()) {
+            handleLocalResult(repository.restoreLatestBackup())
+            _isBackupBusy.value = false
+        }
+    }
+
+    fun createDriveBackup(accessToken: String) {
+        viewModelScope.launch {
+            _isDriveBusy.value = true
+            when (val result = repository.createDriveBackup(accessToken)) {
                 is BackupActionResult.Success -> {
                     _backupMessage.value = result.message
+                    refreshDriveBackupInfo(accessToken)
+                }
+                is BackupActionResult.Error -> _backupMessage.value = result.message
+                is BackupActionResult.NeedsFolderAccess -> _backupMessage.value = result.message
+                is BackupActionResult.NeedsGoogleSignIn -> _backupMessage.value = result.message
+            }
+            _isDriveBusy.value = false
+        }
+    }
+
+    fun restoreLatestDriveBackup(accessToken: String) {
+        viewModelScope.launch {
+            _isDriveBusy.value = true
+            when (val result = repository.restoreLatestDriveBackup(accessToken)) {
+                is BackupActionResult.Success -> {
+                    _backupMessage.value = result.message
+                    refreshDriveBackupInfo(accessToken)
                     refreshBackupInfo()
                 }
-                is BackupActionResult.NeedsFolderAccess -> {
-                    _needsFolderAccess.value = true
-                    _backupMessage.value = result.message
-                }
-                is BackupActionResult.Error -> {
-                    _backupMessage.value = result.message
-                }
+                is BackupActionResult.Error -> _backupMessage.value = result.message
+                is BackupActionResult.NeedsFolderAccess -> _backupMessage.value = result.message
+                is BackupActionResult.NeedsGoogleSignIn -> _backupMessage.value = result.message
             }
-            _isBackupBusy.value = false
+            _isDriveBusy.value = false
         }
     }
 
@@ -93,6 +144,21 @@ class BackupViewModel(
 
     fun clearBackupMessage() {
         _backupMessage.value = null
+    }
+
+    private fun handleLocalResult(result: BackupActionResult) {
+        when (result) {
+            is BackupActionResult.Success -> {
+                _backupMessage.value = result.message
+                refreshBackupInfo()
+            }
+            is BackupActionResult.NeedsFolderAccess -> {
+                _needsFolderAccess.value = true
+                _backupMessage.value = result.message
+            }
+            is BackupActionResult.Error -> _backupMessage.value = result.message
+            is BackupActionResult.NeedsGoogleSignIn -> _backupMessage.value = result.message
+        }
     }
 }
 

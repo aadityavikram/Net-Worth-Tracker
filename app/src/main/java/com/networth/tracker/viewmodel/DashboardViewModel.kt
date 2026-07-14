@@ -8,6 +8,7 @@ import com.networth.tracker.data.AssetRepository
 import com.networth.tracker.data.BankAccountEntity
 import com.networth.tracker.data.ExchangeRateRepository
 import com.networth.tracker.data.ExchangeRateState
+import com.networth.tracker.data.NetWorthHistoryEntity
 import com.networth.tracker.data.NetWorthSummary
 import com.networth.tracker.data.ReturnMetrics
 import kotlinx.coroutines.flow.SharingStarted
@@ -41,6 +42,9 @@ class DashboardViewModel(
                 ReturnMetrics(0.0, 0.0, 0.0, 0.0)
             )
         )
+
+    val netWorthHistory: StateFlow<List<NetWorthHistoryEntity>> = repository.netWorthHistory
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val exchangeRateState: StateFlow<ExchangeRateState> = exchangeRateRepository.state
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ExchangeRateState())

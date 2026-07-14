@@ -28,14 +28,21 @@ class Converters {
 }
 
 @Database(
-    entities = [AssetEntity::class, BankAccountEntity::class],
-    version = 4,
+    entities = [
+        AssetEntity::class,
+        BankAccountEntity::class,
+        NetWorthHistoryEntity::class,
+        AssetTransactionEntity::class
+    ],
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun assetDao(): AssetDao
     abstract fun bankAccountDao(): BankAccountDao
+    abstract fun netWorthHistoryDao(): NetWorthHistoryDao
+    abstract fun assetTransactionDao(): AssetTransactionDao
 
     companion object {
         @Volatile
@@ -48,7 +55,14 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "net_worth_db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7
+                    )
                     .build().also { INSTANCE = it }
             }
         }

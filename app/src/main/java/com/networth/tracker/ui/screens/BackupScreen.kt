@@ -1,6 +1,8 @@
 package com.networth.tracker.ui.screens
 
+import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,7 +16,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
@@ -38,28 +42,119 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.networth.tracker.data.BackupInfo
+import com.networth.tracker.data.DriveAccountInfo
+import com.networth.tracker.data.GoogleDriveAuth
+import com.networth.tracker.data.PinPreferences
 import com.networth.tracker.data.PortfolioBackupStore
+import com.networth.tracker.data.await
 import com.networth.tracker.viewmodel.BackupViewModel
+import kotlinx.coroutines.launch
+
+private enum class DrivePendingAction {
+    Connect,
+    Backup,
+    Restore,
+    Refresh
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BackupScreen(
     viewModel: BackupViewModel,
-    backupStore: PortfolioBackupStore
+    backupStore: PortfolioBackupStore,
+    pinPreferences: PinPreferences
 ) {
     val backupInfo by viewModel.backupInfo.collectAsStateWithLifecycle()
+    val driveBackupInfo by viewModel.driveBackupInfo.collectAsStateWithLifecycle()
+    val driveAccount by viewModel.driveAccount.collectAsStateWithLifecycle()
     val backupMessage by viewModel.backupMessage.collectAsStateWithLifecycle()
     val needsFolderAccess by viewModel.needsFolderAccess.collectAsStateWithLifecycle()
     val isBackupBusy by viewModel.isBackupBusy.collectAsStateWithLifecycle()
+    val isDriveBusy by viewModel.isDriveBusy.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var showFolderDialog by remember { mutableStateOf(false) }
+    var showRestoreConfirm by remember { mutableStateOf(false) }
+    var showDriveRestoreConfirm by remember { mutableStateOf(false) }
+    var showChangePin by remember { mutableStateOf(false) }
+    var pendingDriveAction by remember { mutableStateOf<DrivePendingAction?>(null) }
+    var isAuthorizing by remember { mutableStateOf(false) }
+
+    fun handleAuthorized(result: AuthorizationResult) {
+        val token = GoogleDriveAuth.accessTokenOrNull(result)
+        val email = GoogleDriveAuth.accountEmail(result) ?: driveAccount.email
+        viewModel.onDriveConnected(email, token)
+        when (pendingDriveAction) {
+            DrivePendingAction.Backup -> {
+                if (token != null) viewModel.createDriveBackup(token)
+                else scope.launch { snackbarHostState.showSnackbar("Could not get Google Drive access") }
+            }
+            DrivePendingAction.Restore -> {
+                if (token != null) viewModel.restoreLatestDriveBackup(token)
+                else scope.launch { snackbarHostState.showSnackbar("Could not get Google Drive access") }
+            }
+            DrivePendingAction.Refresh, DrivePendingAction.Connect -> {
+                if (token != null) viewModel.refreshDriveBackupInfo(token)
+            }
+            null -> Unit
+        }
+        pendingDriveAction = null
+    }
+
+    val driveAuthLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { activityResult ->
+        isAuthorizing = false
+        if (activityResult.resultCode != Activity.RESULT_OK) {
+            pendingDriveAction = null
+            scope.launch { snackbarHostState.showSnackbar("Google Drive sign-in cancelled") }
+            return@rememberLauncherForActivityResult
+        }
+        try {
+            val result = GoogleDriveAuth.resultFromIntent(context, activityResult.data)
+            handleAuthorized(result)
+        } catch (e: Exception) {
+            pendingDriveAction = null
+            scope.launch {
+                snackbarHostState.showSnackbar(e.message ?: "Google Drive authorization failed")
+            }
+        }
+    }
+
+    fun requestDriveAccess(action: DrivePendingAction) {
+        pendingDriveAction = action
+        isAuthorizing = true
+        scope.launch {
+            try {
+                val result = GoogleDriveAuth.awaitAuthorization(context)
+                if (result.hasResolution()) {
+                    val pendingIntent = result.pendingIntent
+                        ?: throw IllegalStateException("Missing Google consent UI")
+                    driveAuthLauncher.launch(
+                        IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                    )
+                } else {
+                    isAuthorizing = false
+                    handleAuthorized(result)
+                }
+            } catch (e: Exception) {
+                isAuthorizing = false
+                pendingDriveAction = null
+                snackbarHostState.showSnackbar(e.message ?: "Google Drive authorization failed")
+            }
+        }
+    }
 
     val backupFolderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -76,6 +171,12 @@ fun BackupScreen(
 
     LaunchedEffect(needsFolderAccess) {
         if (needsFolderAccess) showFolderDialog = true
+    }
+
+    LaunchedEffect(driveAccount.isConnected) {
+        if (driveAccount.isConnected) {
+            requestDriveAccess(DrivePendingAction.Refresh)
+        }
     }
 
     if (showFolderDialog) {
@@ -103,6 +204,74 @@ fun BackupScreen(
         )
     }
 
+    if (showRestoreConfirm) {
+        val latestName = backupInfo.latestFileName ?: "the latest backup"
+        AlertDialog(
+            onDismissRequest = { showRestoreConfirm = false },
+            title = { Text("Restore backup?") },
+            text = {
+                Text(
+                    "This replaces all current assets and bank accounts with data from $latestName. This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRestoreConfirm = false
+                    viewModel.restoreLatestBackup()
+                }) {
+                    Text("Restore")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showDriveRestoreConfirm) {
+        val latestName = driveBackupInfo.latestFileName ?: "the latest Google Drive backup"
+        AlertDialog(
+            onDismissRequest = { showDriveRestoreConfirm = false },
+            title = { Text("Restore from Google Drive?") },
+            text = {
+                Text(
+                    "This replaces all current assets and bank accounts with data from $latestName. This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDriveRestoreConfirm = false
+                    requestDriveAccess(DrivePendingAction.Restore)
+                }) {
+                    Text("Restore")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDriveRestoreConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showChangePin) {
+        PinLockScreen(
+            pinPreferences = pinPreferences,
+            mode = PinLockMode.Change,
+            onUnlocked = { },
+            onPinChanged = {
+                showChangePin = false
+                scope.launch {
+                    snackbarHostState.showSnackbar("PIN updated")
+                }
+            },
+            onCancel = { showChangePin = false }
+        )
+        return
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -124,9 +293,21 @@ fun BackupScreen(
         ) {
             item {
                 Text(
-                    "Save your portfolio to a JSON file on your device. Backups include assets, bank accounts, and return data.",
+                    "Save your portfolio locally or to Google Drive. Backups include assets, bank accounts, transactions, and history.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
+
+            item {
+                GoogleDriveBackupCard(
+                    account = driveAccount,
+                    backupInfo = driveBackupInfo,
+                    isBusy = isDriveBusy || isAuthorizing,
+                    onConnect = { requestDriveAccess(DrivePendingAction.Connect) },
+                    onDisconnect = viewModel::disconnectDrive,
+                    onBackup = { requestDriveAccess(DrivePendingAction.Backup) },
+                    onRestore = { showDriveRestoreConfirm = true }
                 )
             }
 
@@ -135,11 +316,157 @@ fun BackupScreen(
                     backupInfo = backupInfo,
                     isBusy = isBackupBusy,
                     onBackup = viewModel::createBackup,
-                    onRestore = viewModel::restoreLatestBackup,
+                    onRestore = { showRestoreConfirm = true },
                     onSelectFolder = {
                         backupFolderLauncher.launch(backupStore.suggestedBackupTreeInitialUri())
                     }
                 )
+            }
+
+            item {
+                AppLockCard(onChangePin = { showChangePin = true })
+            }
+        }
+    }
+}
+
+@Composable
+private fun GoogleDriveBackupCard(
+    account: DriveAccountInfo,
+    backupInfo: BackupInfo,
+    isBusy: Boolean,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+    onBackup: () -> Unit,
+    onRestore: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Cloud,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        "Google Drive",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        if (account.isConnected) {
+                            account.email ?: "Connected"
+                        } else {
+                            "Sync backups to your Google account"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    )
+                }
+            }
+
+            if (account.isConnected) {
+                if (backupInfo.latestFileName != null) {
+                    Text(
+                        "Latest: ${backupInfo.latestFileName} (${backupInfo.backupCount} total)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    )
+                } else {
+                    Text(
+                        "No Drive backups yet. Tap Backup to upload a JSON snapshot.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    )
+                }
+
+                Text(
+                    "Files are saved to My Drive/NetWorthTracker/ and are visible in Google Drive.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+            }
+
+            if (isBusy) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            } else if (!account.isConnected) {
+                Button(onClick = onConnect, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Cloud, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Connect Google Drive")
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onBackup) {
+                        Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Backup")
+                    }
+                    OutlinedButton(onClick = onRestore) {
+                        Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Restore")
+                    }
+                }
+                OutlinedButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
+                    Text("Disconnect")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppLockCard(onChangePin: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        "App Lock",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        "A 4-digit PIN is required when opening the app.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    )
+                }
+            }
+
+            OutlinedButton(onClick = onChangePin, modifier = Modifier.fillMaxWidth()) {
+                Text("Change PIN")
             }
         }
     }
@@ -175,7 +502,7 @@ private fun BackupRestoreCard(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Text(
-                        "JSON Backup",
+                        "Local JSON Backup",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Medium
                     )
@@ -202,7 +529,7 @@ private fun BackupRestoreCard(
             }
 
             Text(
-                "JSON files survive app uninstall. Restore loads the most recent backup.",
+                "JSON files survive app uninstall. Restore replaces current data with the most recent backup after confirmation.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
             )

@@ -4,7 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,7 +20,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,30 +41,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.networth.tracker.data.BankAccountType
-import com.networth.tracker.data.Currency
 import com.networth.tracker.util.FormatUtils
-import com.networth.tracker.viewmodel.AddEditBankAccountViewModel
+import com.networth.tracker.viewmodel.AddEditTransactionViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddEditBankAccountScreen(
-    viewModel: AddEditBankAccountViewModel,
+fun AddEditTransactionScreen(
+    viewModel: AddEditTransactionViewModel,
     onNavigateBack: () -> Unit
 ) {
     val formState by viewModel.formState.collectAsStateWithLifecycle()
 
     LaunchedEffect(formState.isSaved) {
-        if (formState.isSaved) {
-            onNavigateBack()
-        }
+        if (formState.isSaved) onNavigateBack()
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(if (formState.id > 0) "Edit Bank Account" else "Add Bank Account")
+                    Text(if (formState.id > 0) "Edit Transaction" else "Add Transaction")
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
@@ -82,12 +76,11 @@ fun AddEditBankAccountScreen(
         }
     ) { padding ->
         if (formState.isLoading) {
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator()
             }
@@ -100,97 +93,53 @@ fun AddEditBankAccountScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Text("Account Type", style = MaterialTheme.typography.titleSmall)
-                BankAccountTypeSelector(
-                    allowedTypes = viewModel.resolvedAllowedAccountTypes(),
-                    selected = formState.accountType,
-                    onSelect = viewModel::onAccountTypeChange
-                )
-
                 OutlinedTextField(
-                    value = formState.bankName,
-                    onValueChange = viewModel::onBankNameChange,
-                    label = { Text("Bank Name") },
-                    placeholder = { Text("e.g. HDFC, SBI, Chase") },
-                    isError = formState.bankNameError != null,
-                    supportingText = formState.bankNameError?.let { { Text(it) } },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    value = formState.accountName,
-                    onValueChange = viewModel::onAccountNameChange,
-                    label = { Text("Account Name") },
-                    placeholder = { Text("e.g. Salary Account, Primary Savings") },
-                    isError = formState.accountNameError != null,
-                    supportingText = formState.accountNameError?.let { { Text(it) } },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    value = formState.accountNumber,
-                    onValueChange = viewModel::onAccountNumberChange,
-                    label = { Text("Account Number (optional)") },
-                    placeholder = { Text("Last 4 digits shown in list") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    value = formState.balance,
-                    onValueChange = viewModel::onBalanceChange,
-                    label = {
+                    value = formState.title,
+                    onValueChange = viewModel::onTitleChange,
+                    label = { Text("Title") },
+                    placeholder = {
                         Text(
-                            if (formState.accountType.isLiability) "Outstanding Balance" else "Current Balance"
+                            if (formState.isLiability) "e.g. Outstanding after EMI"
+                            else "e.g. SIP March, Lump sum"
                         )
                     },
-                    isError = formState.balanceError != null,
-                    supportingText = formState.balanceError?.let { { Text(it) } },
+                    isError = formState.titleError != null,
+                    supportingText = formState.titleError?.let { { Text(it) } },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = formState.amount,
+                    onValueChange = viewModel::onAmountChange,
+                    label = {
+                        Text(
+                            if (formState.isLiability) "Outstanding Amount" else "Amount"
+                        )
+                    },
+                    isError = formState.amountError != null,
+                    supportingText = formState.amountError?.let { { Text(it) } },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
 
-                if (formState.accountType == BankAccountType.CREDIT_CARD) {
+                if (formState.showInvested && !formState.isLiability) {
                     OutlinedTextField(
-                        value = formState.creditLimit,
-                        onValueChange = viewModel::onCreditLimitChange,
-                        label = { Text("Total Credit Limit") },
-                        placeholder = { Text("Maximum credit available") },
-                        isError = formState.creditLimitError != null,
-                        supportingText = formState.creditLimitError?.let { { Text(it) } },
+                        value = formState.investedAmount,
+                        onValueChange = viewModel::onInvestedAmountChange,
+                        label = { Text("Invested Amount (optional)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
-
-                    formState.creditUtilisationPercent?.let { utilisation ->
-                        Text(
-                            "Utilisation: ${FormatUtils.formatPercent(utilisation)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                        )
-                    }
                 }
 
-                BankAccountDateField(
-                    dateMillis = formState.asOfDateMillis,
-                    onDateSelected = viewModel::onAsOfDateChange
+                TransactionDateField(
+                    dateMillis = formState.dateMillis,
+                    label = "Transaction Date",
+                    onDateSelected = viewModel::onDateChange
                 )
-
-                Text("Currency", style = MaterialTheme.typography.titleSmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Currency.entries.forEach { currency ->
-                        FilterChip(
-                            selected = formState.currency == currency,
-                            onClick = { viewModel.onCurrencyChange(currency) },
-                            label = { Text("${currency.symbol} ${currency.code}") }
-                        )
-                    }
-                }
 
                 OutlinedTextField(
                     value = formState.notes,
@@ -207,7 +156,7 @@ fun AddEditBankAccountScreen(
                     onClick = { viewModel.save() },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(if (formState.id > 0) "Update Account" else "Save Account")
+                    Text(if (formState.id > 0) "Update Transaction" else "Save Transaction")
                 }
             }
         }
@@ -216,8 +165,9 @@ fun AddEditBankAccountScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BankAccountDateField(
+internal fun TransactionDateField(
     dateMillis: Long,
+    label: String,
     onDateSelected: (Long) -> Unit
 ) {
     var showPicker by remember { mutableStateOf(false) }
@@ -228,7 +178,7 @@ private fun BankAccountDateField(
             value = displayDate,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Date") },
+            label = { Text(label) },
             trailingIcon = {
                 Icon(
                     Icons.Default.CalendarToday,
@@ -257,68 +207,13 @@ private fun BankAccountDateField(
                         datePickerState.selectedDateMillis?.let(onDateSelected)
                         showPicker = false
                     }
-                ) {
-                    Text("OK")
-                }
+                ) { Text("OK") }
             },
             dismissButton = {
-                TextButton(onClick = { showPicker = false }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { showPicker = false }) { Text("Cancel") }
             }
         ) {
             DatePicker(state = datePickerState)
-        }
-    }
-}
-
-@Composable
-private fun BankAccountTypeSelector(
-    allowedTypes: List<BankAccountType>,
-    selected: BankAccountType,
-    onSelect: (BankAccountType) -> Unit
-) {
-    if (allowedTypes.size <= 3) {
-        BankAccountTypeChipRow(allowedTypes, selected, onSelect)
-        return
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            "Assets",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-        )
-        BankAccountTypeChipRow(BankAccountType.assets, selected, onSelect)
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            "Liabilities",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-        )
-        BankAccountTypeChipRow(BankAccountType.liabilities, selected, onSelect)
-    }
-}
-
-@Composable
-private fun BankAccountTypeChipRow(
-    types: List<BankAccountType>,
-    selected: BankAccountType,
-    onSelect: (BankAccountType) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        types.forEach { type ->
-            FilterChip(
-                selected = selected == type,
-                onClick = { onSelect(type) },
-                label = { Text(type.displayName) },
-                modifier = Modifier.weight(1f)
-            )
         }
     }
 }

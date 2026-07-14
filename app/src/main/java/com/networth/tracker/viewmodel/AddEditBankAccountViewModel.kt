@@ -22,6 +22,7 @@ data class BankAccountFormState(
     val accountType: BankAccountType = BankAccountType.SAVINGS,
     val balance: String = "",
     val creditLimit: String = "",
+    val asOfDateMillis: Long = System.currentTimeMillis(),
     val currency: Currency = Currency.INR,
     val notes: String = "",
     val isLoading: Boolean = false,
@@ -81,6 +82,8 @@ class AddEditBankAccountViewModel(
                             } else {
                                 ""
                             },
+                            asOfDateMillis = account.asOfDateMillis.takeIf { it > 0 }
+                                ?: account.updatedAt,
                             currency = account.currency,
                             notes = account.notes
                         )
@@ -134,6 +137,10 @@ class AddEditBankAccountViewModel(
         _formState.update { it.copy(currency = currency) }
     }
 
+    fun onAsOfDateChange(millis: Long) {
+        _formState.update { it.copy(asOfDateMillis = millis) }
+    }
+
     fun onNotesChange(notes: String) {
         _formState.update { it.copy(notes = notes) }
     }
@@ -153,8 +160,8 @@ class AddEditBankAccountViewModel(
         }
 
         val balance = state.balance.toDoubleOrNull()
-        if (balance == null || balance <= 0) {
-            _formState.update { it.copy(balanceError = "Enter a valid balance") }
+        if (balance == null || balance < 0) {
+            _formState.update { it.copy(balanceError = "Enter a valid balance (0 or more)") }
             valid = false
         }
 
@@ -183,7 +190,8 @@ class AddEditBankAccountViewModel(
                         creditLimit ?: 0.0
                     } else {
                         0.0
-                    }
+                    },
+                    asOfDateMillis = state.asOfDateMillis
                 )
             )
             _formState.update { it.copy(isSaved = true) }
