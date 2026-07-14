@@ -16,9 +16,14 @@ An Android app to track your personal net worth across assets and liabilities. A
   - Gold (INR)
   - Real Estate (INR)
   - Home Loan / Liabilities (INR)
+- **Bank accounts** (savings, current, salary, credit card, overdraft) alongside assets and liabilities
 - **Add, edit, and delete** entries with name, amount, currency, and notes
+- **Asset transactions** and return metrics on holdings
 - **Live USD/INR conversion** — fetches the current exchange rate on launch (cached for 1 hour, with manual refresh)
 - **Compact Indian formatting** (Lakhs / Crores)
+- **Investment Calculator** — SIP or lumpsum projections with annual step-up, year-wise breakdown (calendar years), and JSON download/load of input + output
+- **Loan EMI Calculator** — EMI schedule with optional prepayments (reduce tenure or EMI), year-wise breakdown from the loan start year, and JSON download/load of input + output
+- **PIN lock** for app access
 - **Local JSON backup & restore** to `Documents/NetWorthTracker/`
 - **Google Drive backup & restore** to a visible `My Drive/NetWorthTracker/` folder
 
@@ -79,18 +84,33 @@ If you previously connected with the old private app-data permission, tap **Disc
 
 ## Usage
 
-1. Tap **+** to add an asset or liability
+1. Tap **+** to add an asset, liability, or bank account
 2. Pick a category, enter name and amount
 3. US Stocks default to USD; other categories default to INR
 4. View your net worth on the home screen — liabilities are subtracted automatically
-5. Use the **Backup** tab for local JSON and Google Drive backup/restore
+5. Open the menu for **Investment Calculator** or **Loan EMI Calculator**
+6. After calculating, use **Download JSON** to save the scenario (inputs + results), or **Load JSON** to restore one
+7. Use the **Backup** tab for local JSON and Google Drive backup/restore
+
+### Calculator scenario JSON
+
+Both calculators export a JSON file with `type`, `version`, `input`, and `output`:
+
+| Calculator | `type` | Suggested filename |
+|------------|--------|--------------------|
+| Investment | `investment_projection` | `investment_projection_yyyyMMdd_HHmmss.json` |
+| Loan EMI | `loan_emi` | `loan_emi_yyyyMMdd_HHmmss.json` |
+
+- **Download JSON** is available after a successful calculation
+- **Load JSON** restores the inputs and recalculates results in the app
+- Year-wise tables show calendar years (current year for Investment; loan start year for Loan EMI)
 
 ## Project Structure
 
 ```
 app/src/main/java/com/networth/tracker/
-├── data/           # Room entities, DAO, repository, backup stores
-├── ui/screens/     # Dashboard & Add/Edit screens
+├── data/           # Room entities, DAO, repository, calculators, backup & scenario JSON
+├── ui/screens/     # Dashboard, Add/Edit, Backup, calculators
 ├── ui/theme/       # Material 3 theme
 ├── viewmodel/      # ViewModels
 └── util/           # Formatting helpers
