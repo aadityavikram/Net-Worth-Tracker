@@ -1,6 +1,9 @@
 package com.networth.tracker.ui.screens.dashboard
 
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -31,11 +34,13 @@ import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
@@ -52,6 +57,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -79,12 +85,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.filled.Work
+import java.time.Year
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -95,8 +103,12 @@ import com.networth.tracker.data.BankAccountAddContext
 import com.networth.tracker.data.BankAccountEntity
 import com.networth.tracker.data.BankAccountType
 import com.networth.tracker.data.BankAccountTypeSummary
+import com.networth.tracker.data.CalculatorScenarioJson
+import com.networth.tracker.data.CalculatorScenarioParseResult
 import com.networth.tracker.data.CategorySummary
 import com.networth.tracker.data.ExchangeRateState
+import com.networth.tracker.data.InvestmentScenarioExport
+import com.networth.tracker.data.InvestmentScenarioInput
 import com.networth.tracker.data.NetWorthSummary
 import com.networth.tracker.data.AssetRepository
 import com.networth.tracker.data.EmiResult
@@ -118,6 +130,7 @@ import com.networth.tracker.viewmodel.DashboardViewModel
 
 @Composable
 internal fun InvestmentCalculatorTabContent() {
+    val context = LocalContext.current
     var mode by remember { mutableStateOf(InvestmentMode.SIP) }
     var amountText by remember { mutableStateOf("") }
     var annualReturnText by remember { mutableStateOf("") }
@@ -126,6 +139,56 @@ internal fun InvestmentCalculatorTabContent() {
     var resultRows by remember { mutableStateOf<List<InvestmentYearRow>?>(null) }
     var tableExpanded by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var pendingDownloadJson by remember { mutableStateOf<String?>(null) }
+
+    fun applyInvestmentScenario(export: InvestmentScenarioExport) {
+        mode = export.input.mode
+        amountText = formatScenarioNumber(export.input.amount)
+        annualReturnText = formatScenarioNumber(export.input.annualReturnPercent)
+        yearsText = export.input.years.toString()
+        stepUpText = formatScenarioNumber(export.input.stepUpPercent)
+        resultRows = export.output
+        tableExpanded = true
+        errorMessage = null
+        statusMessage = "Scenario loaded"
+    }
+
+    val downloadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        val json = pendingDownloadJson
+        pendingDownloadJson = null
+        if (uri == null || json == null) return@rememberLauncherForActivityResult
+        val saved = runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                stream.write(json.toByteArray(Charsets.UTF_8))
+            } != null
+        }.getOrDefault(false)
+        statusMessage = if (saved) "Downloaded JSON" else "Could not save JSON file"
+        if (!saved) errorMessage = "Could not save JSON file"
+    }
+
+    val loadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val json = runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        }.getOrNull()
+        if (json.isNullOrBlank()) {
+            errorMessage = "Could not read JSON file"
+            statusMessage = null
+            return@rememberLauncherForActivityResult
+        }
+        when (val parsed = CalculatorScenarioJson.parseInvestment(json)) {
+            is CalculatorScenarioParseResult.Success -> applyInvestmentScenario(parsed.value)
+            is CalculatorScenarioParseResult.Error -> {
+                errorMessage = parsed.message
+                statusMessage = null
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -221,6 +284,14 @@ internal fun InvestmentCalculatorTabContent() {
                         )
                     }
 
+                    statusMessage?.let { message ->
+                        Text(
+                            message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
                     Button(
                         onClick = {
                             val amount = amountText.toDoubleOrNull()
@@ -246,6 +317,7 @@ internal fun InvestmentCalculatorTabContent() {
                                     stepUpPercent = if (mode == InvestmentMode.SIP) stepUp else 0.0
                                 )
                                 tableExpanded = true
+                                statusMessage = null
                             } else {
                                 resultRows = null
                             }
@@ -253,6 +325,67 @@ internal fun InvestmentCalculatorTabContent() {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Calculate")
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val rows = resultRows
+                                val amount = amountText.toDoubleOrNull()
+                                val annualReturn = annualReturnText.toDoubleOrNull()
+                                val years = yearsText.toIntOrNull()
+                                val stepUp = stepUpText.toDoubleOrNull() ?: 0.0
+                                if (rows.isNullOrEmpty() || amount == null || annualReturn == null || years == null) {
+                                    errorMessage = "Calculate first to download JSON"
+                                    statusMessage = null
+                                    return@Button
+                                }
+                                val json = CalculatorScenarioJson.serializeInvestment(
+                                    InvestmentScenarioExport(
+                                        input = InvestmentScenarioInput(
+                                            mode = mode,
+                                            amount = amount,
+                                            annualReturnPercent = annualReturn,
+                                            years = years,
+                                            stepUpPercent = if (mode == InvestmentMode.SIP) stepUp else 0.0
+                                        ),
+                                        output = rows
+                                    )
+                                )
+                                pendingDownloadJson = json
+                                errorMessage = null
+                                downloadLauncher.launch(CalculatorScenarioJson.investmentFileName())
+                            },
+                            enabled = !resultRows.isNullOrEmpty(),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Default.Download,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Download JSON")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                errorMessage = null
+                                statusMessage = null
+                                loadLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Default.UploadFile,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Load JSON")
+                        }
                     }
                 }
             }
@@ -263,6 +396,7 @@ internal fun InvestmentCalculatorTabContent() {
                 item {
                     InvestmentProjectionResultTable(
                         rows = rows,
+                        startYear = Year.now().value,
                         expanded = tableExpanded,
                         onToggleExpanded = { tableExpanded = !tableExpanded }
                     )
@@ -272,9 +406,18 @@ internal fun InvestmentCalculatorTabContent() {
     }
 }
 
+internal fun formatScenarioNumber(value: Double): String {
+    return if (value % 1.0 == 0.0) {
+        value.toLong().toString()
+    } else {
+        value.toString()
+    }
+}
+
 @Composable
 internal fun InvestmentProjectionResultTable(
     rows: List<InvestmentYearRow>,
+    startYear: Int,
     expanded: Boolean,
     onToggleExpanded: () -> Unit
 ) {
@@ -322,7 +465,10 @@ internal fun InvestmentProjectionResultTable(
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
                             )
                         }
-                        InvestmentProjectionTableRow(row)
+                        InvestmentProjectionTableRow(
+                            row = row,
+                            displayYear = startYear + row.year - 1
+                        )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -367,7 +513,10 @@ internal fun InvestmentProjectionTableHeader() {
 }
 
 @Composable
-internal fun InvestmentProjectionTableRow(row: InvestmentYearRow) {
+internal fun InvestmentProjectionTableRow(
+    row: InvestmentYearRow,
+    displayYear: Int
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -375,7 +524,7 @@ internal fun InvestmentProjectionTableRow(row: InvestmentYearRow) {
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         InvestmentProjectionTableCell(
-            text = row.year.toString(),
+            text = displayYear.toString(),
             modifier = Modifier.weight(0.7f),
             textAlign = TextAlign.Start
         )

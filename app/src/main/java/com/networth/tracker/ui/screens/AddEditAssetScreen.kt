@@ -118,14 +118,29 @@ fun AddEditAssetScreen(
                     singleLine = true
                 )
 
+                if (formState.amountsLocked) {
+                    Text(
+                        text = "Amounts are locked because this holding has transactions. " +
+                            "Add or edit transactions to change invested, current, or valuation values.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 if (formState.category.isLoan) {
                     OutlinedTextField(
                         value = formState.investedAmount,
                         onValueChange = viewModel::onInvestedAmountChange,
                         label = { Text("Original Amount") },
                         placeholder = { Text("Total loan amount sanctioned") },
+                        enabled = !formState.amountsLocked,
                         isError = formState.investedAmountError != null,
-                        supportingText = formState.investedAmountError?.let { { Text(it) } },
+                        supportingText = formState.investedAmountError?.let { { Text(it) } }
+                            ?: if (formState.amountsLocked) {
+                                { Text("Managed via transactions") }
+                            } else {
+                                null
+                            },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -136,8 +151,14 @@ fun AddEditAssetScreen(
                         onValueChange = viewModel::onInvestedAmountChange,
                         label = { Text("Invested Amount") },
                         placeholder = { Text("Total amount invested") },
+                        enabled = !formState.amountsLocked,
                         isError = formState.investedAmountError != null,
-                        supportingText = formState.investedAmountError?.let { { Text(it) } },
+                        supportingText = formState.investedAmountError?.let { { Text(it) } }
+                            ?: if (formState.amountsLocked) {
+                                { Text("Managed via transactions") }
+                            } else {
+                                null
+                            },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -156,8 +177,14 @@ fun AddEditAssetScreen(
                             }
                         )
                     },
+                    enabled = !formState.amountsLocked,
                     isError = formState.currentAmountError != null,
-                    supportingText = formState.currentAmountError?.let { { Text(it) } },
+                    supportingText = formState.currentAmountError?.let { { Text(it) } }
+                        ?: if (formState.amountsLocked) {
+                            { Text("Managed via transactions") }
+                        } else {
+                            null
+                        },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -191,6 +218,12 @@ fun AddEditAssetScreen(
                     DateTakenField(
                         dateTakenMillis = formState.valuationDateMillis,
                         label = "Current Value Date",
+                        enabled = !formState.amountsLocked,
+                        supportingText = if (formState.amountsLocked) {
+                            "Managed via transactions"
+                        } else {
+                            null
+                        },
                         onDateSelected = viewModel::onValuationDateChange
                     )
                 }
@@ -233,17 +266,20 @@ fun AddEditAssetScreen(
 private fun DateTakenField(
     dateTakenMillis: Long,
     label: String = "Date",
+    enabled: Boolean = true,
+    supportingText: String? = null,
     onDateSelected: (Long) -> Unit
 ) {
     var showPicker by remember { mutableStateOf(false) }
     val displayDate = FormatUtils.formatDate(dateTakenMillis).ifBlank { "Select date" }
-    val openPicker = { showPicker = true }
+    val openPicker = { if (enabled) showPicker = true }
 
     Box(modifier = Modifier.fillMaxWidth()) {
         OutlinedTextField(
             value = displayDate,
             onValueChange = {},
             readOnly = true,
+            enabled = enabled,
             label = { Text(label) },
             trailingIcon = {
                 Icon(
@@ -252,14 +288,17 @@ private fun DateTakenField(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
+            supportingText = supportingText?.let { { Text(it) } },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clickable(onClick = openPicker)
-        )
+        if (enabled) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable(onClick = openPicker)
+            )
+        }
     }
 
     if (showPicker) {

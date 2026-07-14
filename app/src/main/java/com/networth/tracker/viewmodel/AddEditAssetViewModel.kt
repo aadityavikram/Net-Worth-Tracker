@@ -25,6 +25,8 @@ data class AssetFormState(
     val valuationDateMillis: Long = System.currentTimeMillis(),
     val currency: Currency = Currency.USD,
     val notes: String = "",
+    /** True when this holding has ledger rows; amounts must change via transactions. */
+    val amountsLocked: Boolean = false,
     val isLoading: Boolean = false,
     val isSaved: Boolean = false,
     val nameError: String? = null,
@@ -58,26 +60,29 @@ class AddEditAssetViewModel(
         if (assetId != null && assetId > 0) {
             viewModelScope.launch {
                 _formState.update { it.copy(isLoading = true) }
-                repository.getAsset(assetId)?.let { asset ->
+                val asset = repository.getAsset(assetId)
+                val amountsLocked = repository.hasTransactionsForAsset(assetId)
+                asset?.let { loaded ->
                     _formState.update {
                         AssetFormState(
-                            id = asset.id,
-                            name = asset.name,
-                            category = asset.category,
-                            investedAmount = if (asset.category.isLoan && asset.investedAmount > 0) {
-                                asset.investedAmount.toString()
-                            } else if (!asset.category.isLiability && asset.investedAmount > 0) {
-                                asset.investedAmount.toString()
+                            id = loaded.id,
+                            name = loaded.name,
+                            category = loaded.category,
+                            investedAmount = if (loaded.category.isLoan && loaded.investedAmount > 0) {
+                                loaded.investedAmount.toString()
+                            } else if (!loaded.category.isLiability && loaded.investedAmount > 0) {
+                                loaded.investedAmount.toString()
                             } else {
                                 ""
                             },
-                            currentAmount = asset.amount.toString(),
-                            interestRate = if (asset.interestRate > 0) asset.interestRate.toString() else "",
-                            dateTakenMillis = asset.dateTakenMillis.takeIf { it > 0 } ?: asset.updatedAt,
-                            valuationDateMillis = asset.valuationDateMillis.takeIf { it > 0 }
+                            currentAmount = loaded.amount.toString(),
+                            interestRate = if (loaded.interestRate > 0) loaded.interestRate.toString() else "",
+                            dateTakenMillis = loaded.dateTakenMillis.takeIf { it > 0 } ?: loaded.updatedAt,
+                            valuationDateMillis = loaded.valuationDateMillis.takeIf { it > 0 }
                                 ?: System.currentTimeMillis(),
-                            currency = asset.currency,
-                            notes = asset.notes
+                            currency = loaded.currency,
+                            notes = loaded.notes,
+                            amountsLocked = amountsLocked
                         )
                     }
                 }
@@ -113,12 +118,14 @@ class AddEditAssetViewModel(
     }
 
     fun onInvestedAmountChange(amount: String) {
+        if (_formState.value.amountsLocked) return
         if (amount.isEmpty() || amount.matches(Regex("^\\d*\\.?\\d*$"))) {
             _formState.update { it.copy(investedAmount = amount, investedAmountError = null) }
         }
     }
 
     fun onCurrentAmountChange(amount: String) {
+        if (_formState.value.amountsLocked) return
         if (amount.isEmpty() || amount.matches(Regex("^\\d*\\.?\\d*$"))) {
             _formState.update { it.copy(currentAmount = amount, currentAmountError = null) }
         }
@@ -135,6 +142,7 @@ class AddEditAssetViewModel(
     }
 
     fun onValuationDateChange(millis: Long) {
+        if (_formState.value.amountsLocked) return
         _formState.update { it.copy(valuationDateMillis = millis) }
     }
 

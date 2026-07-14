@@ -1,6 +1,9 @@
 package com.networth.tracker.ui.screens.dashboard
 
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -31,11 +34,13 @@ import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
@@ -52,6 +57,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -79,6 +85,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -95,8 +102,13 @@ import com.networth.tracker.data.BankAccountAddContext
 import com.networth.tracker.data.BankAccountEntity
 import com.networth.tracker.data.BankAccountType
 import com.networth.tracker.data.BankAccountTypeSummary
+import com.networth.tracker.data.CalculatorScenarioJson
+import com.networth.tracker.data.CalculatorScenarioParseResult
 import com.networth.tracker.data.CategorySummary
 import com.networth.tracker.data.ExchangeRateState
+import com.networth.tracker.data.LoanScenarioExport
+import com.networth.tracker.data.LoanScenarioInput
+import com.networth.tracker.data.LoanScenarioPrepayment
 import com.networth.tracker.data.NetWorthSummary
 import com.networth.tracker.data.AssetRepository
 import com.networth.tracker.data.EmiResult
@@ -146,6 +158,7 @@ internal fun frequencyLabel(frequency: PrepaymentFrequency): String = when (freq
 
 @Composable
 internal fun LoanEmiCalculatorTabContent() {
+    val context = LocalContext.current
     var loanAmountText by remember { mutableStateOf("") }
     var interestRateText by remember { mutableStateOf("") }
     var tenureText by remember { mutableStateOf("") }
@@ -160,6 +173,70 @@ internal fun LoanEmiCalculatorTabContent() {
     var result by remember { mutableStateOf<EmiResult?>(null) }
     var tableExpanded by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var pendingDownloadJson by remember { mutableStateOf<String?>(null) }
+
+    fun applyLoanScenario(export: LoanScenarioExport) {
+        loanAmountText = formatScenarioNumber(export.input.loanAmount)
+        interestRateText = formatScenarioNumber(export.input.interestRate)
+        tenureText = export.input.tenure.toString()
+        tenureUnit = export.input.tenureUnit
+        loanStartMonth = export.input.loanStartMonth
+        prepaymentEffect = export.input.prepaymentEffect
+        addedPrepayments = export.input.prepayments.mapIndexed { index, entry ->
+            AddedPrepayment(
+                id = System.nanoTime() + index,
+                amount = entry.amount,
+                frequency = entry.frequency,
+                startMonth = entry.startMonth,
+                endMonth = entry.endMonth
+            )
+        }
+        draftPrepayment = DraftPrepayment()
+        draftError = null
+        prepaymentsExpanded = export.input.prepayments.isNotEmpty()
+        addedExpanded = true
+        result = export.output
+        tableExpanded = true
+        errorMessage = null
+        statusMessage = "Scenario loaded"
+    }
+
+    val downloadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        val json = pendingDownloadJson
+        pendingDownloadJson = null
+        if (uri == null || json == null) return@rememberLauncherForActivityResult
+        val saved = runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                stream.write(json.toByteArray(Charsets.UTF_8))
+            } != null
+        }.getOrDefault(false)
+        statusMessage = if (saved) "Downloaded JSON" else "Could not save JSON file"
+        if (!saved) errorMessage = "Could not save JSON file"
+    }
+
+    val loadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val json = runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        }.getOrNull()
+        if (json.isNullOrBlank()) {
+            errorMessage = "Could not read JSON file"
+            statusMessage = null
+            return@rememberLauncherForActivityResult
+        }
+        when (val parsed = CalculatorScenarioJson.parseLoanEmi(json)) {
+            is CalculatorScenarioParseResult.Success -> applyLoanScenario(parsed.value)
+            is CalculatorScenarioParseResult.Error -> {
+                errorMessage = parsed.message
+                statusMessage = null
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -298,6 +375,14 @@ internal fun LoanEmiCalculatorTabContent() {
                         )
                     }
 
+                    statusMessage?.let { message ->
+                        Text(
+                            message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
                     Button(
                         onClick = {
                             val principal = loanAmountText.toDoubleOrNull()
@@ -359,6 +444,7 @@ internal fun LoanEmiCalculatorTabContent() {
                                     prepaymentEffect = prepaymentEffect
                                 )
                                 tableExpanded = true
+                                statusMessage = null
                             } else {
                                 result = null
                             }
@@ -366,6 +452,75 @@ internal fun LoanEmiCalculatorTabContent() {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Calculate")
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val emiResult = result
+                                val principal = loanAmountText.toDoubleOrNull()
+                                val interestRate = interestRateText.toDoubleOrNull()
+                                val tenure = tenureText.toIntOrNull()
+                                if (emiResult == null || principal == null || interestRate == null || tenure == null) {
+                                    errorMessage = "Calculate first to download JSON"
+                                    statusMessage = null
+                                    return@Button
+                                }
+                                val json = CalculatorScenarioJson.serializeLoanEmi(
+                                    LoanScenarioExport(
+                                        input = LoanScenarioInput(
+                                            loanAmount = principal,
+                                            interestRate = interestRate,
+                                            tenure = tenure,
+                                            tenureUnit = tenureUnit,
+                                            loanStartMonth = loanStartMonth,
+                                            prepaymentEffect = prepaymentEffect,
+                                            prepayments = addedPrepayments.map { entry ->
+                                                LoanScenarioPrepayment(
+                                                    amount = entry.amount,
+                                                    frequency = entry.frequency,
+                                                    startMonth = entry.startMonth,
+                                                    endMonth = entry.endMonth
+                                                )
+                                            }
+                                        ),
+                                        output = emiResult
+                                    )
+                                )
+                                pendingDownloadJson = json
+                                errorMessage = null
+                                downloadLauncher.launch(CalculatorScenarioJson.loanEmiFileName())
+                            },
+                            enabled = result != null,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Default.Download,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Download JSON")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                errorMessage = null
+                                statusMessage = null
+                                loadLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Default.UploadFile,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Load JSON")
+                        }
                     }
                 }
             }
@@ -379,6 +534,7 @@ internal fun LoanEmiCalculatorTabContent() {
                 item {
                     EmiScheduleResultTable(
                         rows = emiResult.yearRows,
+                        startYear = loanStartMonth.year,
                         showPrepayment = emiResult.totalPrepayment > 0,
                         expanded = tableExpanded,
                         onToggleExpanded = { tableExpanded = !tableExpanded }
@@ -1001,6 +1157,7 @@ internal fun EmiSummaryRow(
 @Composable
 internal fun EmiScheduleResultTable(
     rows: List<EmiYearRow>,
+    startYear: Int,
     showPrepayment: Boolean,
     expanded: Boolean,
     onToggleExpanded: () -> Unit
@@ -1049,7 +1206,11 @@ internal fun EmiScheduleResultTable(
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
                             )
                         }
-                        EmiScheduleYearRow(row, showPrepayment = showPrepayment)
+                        EmiScheduleYearRow(
+                            row = row,
+                            displayYear = startYear + row.year - 1,
+                            showPrepayment = showPrepayment
+                        )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -1068,7 +1229,7 @@ internal fun EmiScheduleTableHeader(showPrepayment: Boolean) {
     ) {
         EmiScheduleTableCell(
             text = "Year",
-            modifier = Modifier.weight(0.55f),
+            modifier = Modifier.weight(0.7f),
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Start
         )
@@ -1102,7 +1263,11 @@ internal fun EmiScheduleTableHeader(showPrepayment: Boolean) {
 }
 
 @Composable
-internal fun EmiScheduleYearRow(row: EmiYearRow, showPrepayment: Boolean) {
+internal fun EmiScheduleYearRow(
+    row: EmiYearRow,
+    displayYear: Int,
+    showPrepayment: Boolean
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1110,8 +1275,8 @@ internal fun EmiScheduleYearRow(row: EmiYearRow, showPrepayment: Boolean) {
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         EmiScheduleTableCell(
-            text = row.year.toString(),
-            modifier = Modifier.weight(0.55f),
+            text = displayYear.toString(),
+            modifier = Modifier.weight(0.7f),
             textAlign = TextAlign.Start
         )
         EmiScheduleTableCell(

@@ -67,13 +67,29 @@ class AssetRepository(
 
     suspend fun getTransaction(id: Long): AssetTransactionEntity? = transactionDao.getById(id)
 
+    suspend fun hasTransactionsForAsset(assetId: Long): Boolean =
+        transactionDao.getForAssetOnce(assetId).isNotEmpty()
+
     suspend fun saveAsset(asset: AssetEntity, seedOpeningTransaction: Boolean = true): Long {
         return database.withTransaction {
             val isNew = asset.id == 0L
             val id = if (isNew) {
                 assetDao.insert(asset)
             } else {
-                assetDao.update(asset.copy(updatedAt = System.currentTimeMillis()))
+                val existing = assetDao.getAssetById(asset.id)
+                val hasTxs = transactionDao.getForAssetOnce(asset.id).isNotEmpty()
+                // Ledger is source of truth for amounts; ignore header edits when txs exist.
+                val toUpdate = if (existing != null && hasTxs) {
+                    asset.copy(
+                        amount = existing.amount,
+                        investedAmount = existing.investedAmount,
+                        valuationDateMillis = existing.valuationDateMillis,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                } else {
+                    asset.copy(updatedAt = System.currentTimeMillis())
+                }
+                assetDao.update(toUpdate)
                 asset.id
             }
             if (isNew && seedOpeningTransaction) {
