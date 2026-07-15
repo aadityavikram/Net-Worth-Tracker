@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,17 +23,12 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -71,14 +67,22 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { }
 
+    /** Cleared as soon as the activity leaves the foreground so the locked frame is what gets cached. */
+    private var isUnlocked by mutableStateOf(false)
+    private var sessionStarted by mutableStateOf(false)
+
     override fun onPause() {
         hideSoftKeyboard()
+        if ((application as NetWorthApp).pinPreferences.isPinSet) {
+            isUnlocked = false
+        }
         super.onPause()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        protectContentsInRecents()
         requestLegacyStoragePermissionIfNeeded()
 
         val app = application as NetWorthApp
@@ -89,20 +93,6 @@ class MainActivity : ComponentActivity() {
         setContent {
             NetWorthTrackerTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    var isUnlocked by remember { mutableStateOf(false) }
-                    var sessionStarted by remember { mutableStateOf(false) }
-
-                    DisposableEffect(Unit) {
-                        val observer = LifecycleEventObserver { _, event ->
-                            if (event == Lifecycle.Event.ON_STOP && pinPreferences.isPinSet) {
-                                isUnlocked = false
-                            }
-                        }
-                        val processLifecycle = ProcessLifecycleOwner.get().lifecycle
-                        processLifecycle.addObserver(observer)
-                        onDispose { processLifecycle.removeObserver(observer) }
-                    }
-
                     Box(modifier = Modifier.fillMaxSize()) {
                         if (sessionStarted) {
                             val navController = rememberNavController()
@@ -317,6 +307,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    private fun protectContentsInRecents() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            setRecentsScreenshotEnabled(false)
+        } else {
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+            )
         }
     }
 
