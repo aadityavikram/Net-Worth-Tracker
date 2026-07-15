@@ -458,7 +458,7 @@ private fun AppLockCard(onChangePin: () -> Unit) {
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        "A 4-digit PIN is required when opening the app.",
+                        "A 4-digit PIN is required when opening or returning to the app.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                     )
