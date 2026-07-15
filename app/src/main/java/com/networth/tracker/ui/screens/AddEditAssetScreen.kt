@@ -1,6 +1,8 @@
 package com.networth.tracker.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,8 +15,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -23,11 +28,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -35,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.networth.tracker.data.AssetCategory
 import com.networth.tracker.data.Currency
+import com.networth.tracker.util.FormatUtils
 import com.networth.tracker.viewmodel.AddEditAssetViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -91,6 +102,7 @@ fun AddEditAssetScreen(
             ) {
                 Text("Category", style = MaterialTheme.typography.titleSmall)
                 CategorySelector(
+                    allowedCategories = viewModel.resolvedAllowedCategories(),
                     selected = formState.category,
                     onSelect = viewModel::onCategoryChange
                 )
@@ -106,14 +118,47 @@ fun AddEditAssetScreen(
                     singleLine = true
                 )
 
-                if (!formState.category.isLiability) {
+                if (formState.amountsLocked) {
+                    Text(
+                        text = "Amounts are locked because this holding has transactions. " +
+                            "Add or edit transactions to change invested, current, or valuation values.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (formState.category.isLoan) {
+                    OutlinedTextField(
+                        value = formState.investedAmount,
+                        onValueChange = viewModel::onInvestedAmountChange,
+                        label = { Text("Original Amount") },
+                        placeholder = { Text("Total loan amount sanctioned") },
+                        enabled = !formState.amountsLocked,
+                        isError = formState.investedAmountError != null,
+                        supportingText = formState.investedAmountError?.let { { Text(it) } }
+                            ?: if (formState.amountsLocked) {
+                                { Text("Managed via transactions") }
+                            } else {
+                                null
+                            },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                } else if (!formState.category.isLiability) {
                     OutlinedTextField(
                         value = formState.investedAmount,
                         onValueChange = viewModel::onInvestedAmountChange,
                         label = { Text("Invested Amount") },
                         placeholder = { Text("Total amount invested") },
+                        enabled = !formState.amountsLocked,
                         isError = formState.investedAmountError != null,
-                        supportingText = formState.investedAmountError?.let { { Text(it) } },
+                        supportingText = formState.investedAmountError?.let { { Text(it) } }
+                            ?: if (formState.amountsLocked) {
+                                { Text("Managed via transactions") }
+                            } else {
+                                null
+                            },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -125,15 +170,63 @@ fun AddEditAssetScreen(
                     onValueChange = viewModel::onCurrentAmountChange,
                     label = {
                         Text(
-                            if (formState.category.isLiability) "Outstanding Amount" else "Current Amount"
+                            when {
+                                formState.category.isLoan -> "Outstanding Amount"
+                                formState.category.isLiability -> "Outstanding Amount"
+                                else -> "Current Amount"
+                            }
                         )
                     },
+                    enabled = !formState.amountsLocked,
                     isError = formState.currentAmountError != null,
-                    supportingText = formState.currentAmountError?.let { { Text(it) } },
+                    supportingText = formState.currentAmountError?.let { { Text(it) } }
+                        ?: if (formState.amountsLocked) {
+                            { Text("Managed via transactions") }
+                        } else {
+                            null
+                        },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+
+                if (formState.category.isLoan) {
+                    OutlinedTextField(
+                        value = formState.interestRate,
+                        onValueChange = viewModel::onInterestRateChange,
+                        label = { Text("Rate of Interest (%)") },
+                        placeholder = { Text("e.g. 8.5") },
+                        isError = formState.interestRateError != null,
+                        supportingText = formState.interestRateError?.let { { Text(it) } },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+
+                DateTakenField(
+                    dateTakenMillis = formState.dateTakenMillis,
+                    label = when {
+                        formState.category.isLoan -> "Date Taken"
+                        formState.category == AssetCategory.REAL_ESTATE -> "Purchase / Investment Date"
+                        else -> "Date"
+                    },
+                    onDateSelected = viewModel::onDateTakenChange
+                )
+
+                if (formState.category == AssetCategory.REAL_ESTATE) {
+                    DateTakenField(
+                        dateTakenMillis = formState.valuationDateMillis,
+                        label = "Current Value Date",
+                        enabled = !formState.amountsLocked,
+                        supportingText = if (formState.amountsLocked) {
+                            "Managed via transactions"
+                        } else {
+                            null
+                        },
+                        onDateSelected = viewModel::onValuationDateChange
+                    )
+                }
 
                 Text("Currency", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -168,28 +261,103 @@ fun AddEditAssetScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateTakenField(
+    dateTakenMillis: Long,
+    label: String = "Date",
+    enabled: Boolean = true,
+    supportingText: String? = null,
+    onDateSelected: (Long) -> Unit
+) {
+    var showPicker by remember { mutableStateOf(false) }
+    val displayDate = FormatUtils.formatDate(dateTakenMillis).ifBlank { "Select date" }
+    val openPicker = { if (enabled) showPicker = true }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = displayDate,
+            onValueChange = {},
+            readOnly = true,
+            enabled = enabled,
+            label = { Text(label) },
+            trailingIcon = {
+                Icon(
+                    Icons.Default.CalendarToday,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            supportingText = supportingText?.let { { Text(it) } },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        if (enabled) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable(onClick = openPicker)
+            )
+        }
+    }
+
+    if (showPicker) {
+        val initialMillis = dateTakenMillis.takeIf { it > 0 } ?: System.currentTimeMillis()
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let(onDateSelected)
+                        showPicker = false
+                    }
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+}
+
 @Composable
 private fun CategorySelector(
+    allowedCategories: List<AssetCategory>,
     selected: AssetCategory,
     onSelect: (AssetCategory) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            "Assets",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-        )
-        CategoryChipRow(AssetCategory.assets, selected, onSelect)
+    val assetCategories = allowedCategories.filter { !it.isLiability }
+    val liabilityCategories = allowedCategories.filter { it.isLiability }
 
-        Spacer(modifier = Modifier.height(4.dp))
+    if (assetCategories.isNotEmpty() && liabilityCategories.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Assets",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            CategoryChipRow(assetCategories, selected, onSelect)
 
-        Text(
-            "Liabilities",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-        )
-        CategoryChipRow(AssetCategory.liabilities, selected, onSelect)
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                "Liabilities",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            CategoryChipRow(liabilityCategories, selected, onSelect)
+        }
+        return
     }
+
+    CategoryChipRow(allowedCategories, selected, onSelect)
 }
 
 @Composable
